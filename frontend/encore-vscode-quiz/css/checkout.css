@@ -1,0 +1,49 @@
+.queue {
+  max-width: 640px;
+  margin: 30px auto;
+  text-align: center;
+}
+
+.qn {
+  font-size: 90px;
+  font-weight: 800;
+  color: var(--pu);
+}
+
+.done {
+  text-align: center;
+}
+
+.done .tick {
+  width: 54px;
+  height: 54px;
+  border-radius: 50%;
+  border: 1px solid #2563eb;
+  background: #14213f;
+  display: inline-grid;
+  place-items: center;
+  color: #93c5fd;
+  font-size: 26px;
+}
+
+.ev {
+  background: #0f1526;
+  border-radius: 14px;
+  overflow: hidden;
+  text-align: left;
+}
+
+.ev .hd {
+  height: 170px;
+  position: relative;
+  background: #000 center/cover;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  padding: 24px;
+}
+
+.ev .hd h2 {
+  margin: 0;
+  font-size: 28px;
+}
