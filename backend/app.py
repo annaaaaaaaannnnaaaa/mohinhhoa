@@ -1,16 +1,14 @@
-
+from pathlib import Path
 from flask import Flask, jsonify, request
 from db import get_db_connection
 
-app = Flask(__name__)
+FRONTEND_DIR = Path(__file__).resolve().parent.parent / "frontend" / "encore-vscode-quiz"
 
+app = Flask(__name__, static_folder=str(FRONTEND_DIR), static_url_path="")
 
 @app.route("/", methods=["GET"])
-def home():
-    return jsonify({
-        "success": True,
-        "message": "Concert Ticket Backend is running!"
-    })
+def index():
+    return app.send_static_file("index.html")
 
 
 # Get all concerts
