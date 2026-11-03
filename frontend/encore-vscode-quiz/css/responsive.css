@@ -1,0 +1,36 @@
+@media(max-width:860px) {
+  header {
+    padding: 14px 18px;
+  }
+
+  nav {
+    gap: 18px;
+  }
+
+  .wrap {
+    padding: 24px 18px;
+  }
+
+  .grid,
+  .two,
+  .seatpage,
+  .tk {
+    grid-template-columns: 1fr;
+  }
+
+  .auth {
+    grid-template-columns: 1fr;
+  }
+
+  .auth .art {
+    height: 220px;
+  }
+
+  h1 {
+    font-size: 32px;
+  }
+
+  .tk .pic {
+    height: 340px;
+  }
+}

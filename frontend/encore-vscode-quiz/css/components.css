@@ -1,0 +1,299 @@
+.btn {
+  background: var(--pu);
+  border-radius: 10px;
+  padding: 14px 22px;
+  font-weight: 700;
+}
+
+.btn[disabled] {
+  opacity: .45;
+  cursor: not-allowed;
+}
+
+.btn.blue {
+  background: #2563eb;
+}
+
+.btn.ghost {
+  background: transparent;
+  border: 1px solid var(--b);
+}
+
+.kick {
+  color: var(--pu);
+  font-weight: 800;
+  font-size: 20px;
+}
+
+.sub {
+  color: var(--m);
+  margin: 10px 0 26px;
+}
+
+.search {
+  display: flex;
+  gap: 18px;
+}
+
+.search input {
+  flex: 1;
+  background: var(--p);
+  border: 1px solid var(--b);
+  border-radius: 10px;
+  padding: 18px;
+  color: #fff;
+  font: inherit;
+}
+
+.card {
+  background: var(--p);
+  border: 1px solid var(--b);
+  border-radius: 14px;
+  padding: 8px 8px 18px;
+}
+
+.poster {
+  position: relative;
+  height: 200px;
+  border-radius: 12px;
+  overflow: hidden;
+  background: #000;
+}
+
+.poster img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.poster small {
+  position: absolute;
+  left: 22px;
+  top: 38px;
+  font-weight: 700;
+  font-size: 13px;
+}
+
+.poster b {
+  position: absolute;
+  left: 20px;
+  bottom: 6px;
+  font-size: 36px;
+  text-shadow: 0 2px 8px #000;
+}
+
+.card h3 {
+  margin: 16px 14px 4px;
+  font-size: 22px;
+}
+
+.card .row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  margin: 0 14px;
+}
+
+.card p {
+  color: var(--m);
+  margin: 0 14px 8px;
+}
+
+.price {
+  color: var(--g);
+  font-weight: 700;
+}
+
+.empty {
+  color: var(--m);
+  padding: 40px 0;
+}
+
+.seg {
+  display: flex;
+  background: var(--p2);
+  border-radius: 10px;
+  padding: 4px;
+  margin-bottom: 26px;
+}
+
+.seg button {
+  flex: 1;
+  background: 0;
+  padding: 10px;
+  color: var(--m);
+  font-weight: 600;
+  border-radius: 8px;
+}
+
+.seg .on {
+  background: var(--pu);
+  color: #fff;
+}
+
+.in {
+  background: var(--p2);
+  border-radius: 10px;
+  padding: 15px;
+  width: 100%;
+  color: #fff;
+  border: 0;
+  font: inherit;
+}
+
+.rm {
+  display: flex;
+  justify-content: space-between;
+  margin: 18px 0;
+  color: var(--m);
+  font-size: 13px;
+}
+
+.rm a,
+.lnk {
+  color: #8d72ff;
+  font-weight: 700;
+}
+
+.or {
+  text-align: center;
+  color: var(--m);
+  margin: 20px 0;
+  font-size: 13px;
+}
+
+.soc {
+  display: flex;
+  gap: 14px;
+}
+
+.soc button {
+  flex: 1;
+  padding: 14px;
+  border-radius: 8px;
+  font-weight: 700;
+  background: #000;
+}
+
+.soc button+button {
+  background: #fff;
+  color: #000;
+}
+
+.err {
+  background: var(--rd);
+  color: #fca5a5;
+  padding: 14px 18px;
+  border-radius: 8px;
+  margin-top: 20px;
+}
+
+.panel {
+  background: var(--p);
+  border: 1px solid var(--b);
+  border-radius: 18px;
+  padding: 24px;
+}
+
+.sel {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: var(--p2);
+  border: 1px solid var(--b);
+  border-radius: 12px;
+  padding: 12px 14px;
+  margin-bottom: 12px;
+}
+
+.sel small {
+  display: block;
+  color: var(--m);
+}
+
+.sel button {
+  background: #0f1526;
+  border-radius: 50%;
+  width: 30px;
+  height: 30px;
+}
+
+.tot {
+  display: flex;
+  justify-content: space-between;
+  margin: 8px 0;
+  color: #cbd5e1;
+}
+
+.tot.big {
+  font-size: 22px;
+  font-weight: 800;
+}
+
+.tot.big b {
+  color: #8d72ff;
+}
+
+.chip {
+  background: var(--p2);
+  border: 1px solid var(--b);
+  padding: 12px 14px;
+  border-radius: 10px;
+  margin: 14px 0 8px;
+  color: #e2e8f0;
+  font-size: 14px;
+}
+
+.timer {
+  font-size: 72px;
+  font-weight: 800;
+  color: var(--or);
+  text-align: center;
+  margin: 30px 0 4px;
+}
+
+.bar {
+  height: 8px;
+  background: #2a3250;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.bar i {
+  display: block;
+  height: 100%;
+  background: var(--or);
+}
+
+.demo {
+  background: #252d4a;
+  padding: 22px;
+  border-radius: 12px;
+  margin: 12px 0;
+}
+
+.ok {
+  color: var(--g);
+  text-align: center;
+  font-weight: 700;
+  margin-top: 18px;
+  font-size: 13px;
+}
+
+#toast {
+  position: fixed;
+  left: 50%;
+  bottom: 30px;
+  transform: translateX(-50%);
+  background: #2b3350;
+  padding: 12px 22px;
+  border-radius: 10px;
+  opacity: 0;
+  transition: .3s;
+  pointer-events: none;
+  z-index: 9;
+}
+
+#toast.on {
+  opacity: 1;
+}

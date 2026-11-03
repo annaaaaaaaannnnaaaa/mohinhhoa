@@ -1,0 +1,58 @@
+.tk {
+  display: grid;
+  grid-template-columns: 420px 1fr;
+  gap: 40px;
+  position: relative;
+}
+
+.tk .pic {
+  height: 440px;
+  border-radius: 20px;
+  background: #000 center/cover;
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
+
+.tk .pic h2 {
+  font-size: 44px;
+  line-height: 1;
+  margin: 90px 0 30px;
+}
+
+.tk .pic p {
+  font-size: 20px;
+  font-weight: 700;
+}
+
+.qr {
+  background: #fff;
+  border-radius: 16px;
+  padding: 16px;
+  width: 276px;
+}
+
+.vd {
+  position: absolute;
+  right: 0;
+  top: 0;
+  background: #1f4d40;
+  color: var(--g);
+  border-radius: 20px;
+  padding: 6px 22px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.nx {
+  position: fixed;
+  right: 30px;
+  bottom: 30px;
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  background: #33256a;
+  font-size: 30px;
+  color: #aaa;
+}

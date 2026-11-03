@@ -1,0 +1,82 @@
+.seatpage {
+  display: grid;
+  grid-template-columns: 1fr 370px;
+  gap: 26px;
+  padding: 24px 26px;
+}
+
+.map {
+  position: relative;
+  overflow: auto;
+  min-height: 640px;
+}
+
+.map h2 {
+  margin: 0;
+  font-size: 26px;
+}
+
+.zoom {
+  position: absolute;
+  right: 0;
+  top: 0;
+  display: flex;
+  gap: 10px;
+}
+
+.zoom button,
+.back {
+  background: #1b2437;
+  border: 1px solid var(--b);
+  border-radius: 10px;
+  width: 40px;
+  height: 40px;
+  font-size: 20px;
+}
+
+.back {
+  width: auto;
+  padding: 0 22px;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.stage svg,
+.map svg {
+  width: 100%;
+  height: auto;
+  transition: .2s;
+  transform-origin: top center;
+}
+
+.z {
+  cursor: pointer;
+}
+
+.z:hover path,
+.z:hover rect {
+  filter: brightness(1.15);
+}
+
+.z.out {
+  cursor: not-allowed;
+}
+
+.leg {
+  display: flex;
+  gap: 26px;
+  justify-content: center;
+  color: var(--m);
+  font-size: 14px;
+  margin-top: 10px;
+  flex-wrap: wrap;
+}
+
+.leg i {
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  margin-right: 8px;
+  vertical-align: -3px;
+}
