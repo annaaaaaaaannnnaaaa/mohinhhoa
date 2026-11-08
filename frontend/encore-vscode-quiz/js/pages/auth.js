@@ -22,3 +22,21 @@ function fail(m, su) {
   SS.setItem('enc_err', m);
   route()
 }
+// Đăng nhập qua API (MySQL). Thành công trả về object user, thất bại ném lỗi.
+async function apiLogin(email, password) {
+  const res = await fetch('/api/login', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({email, password})
+  });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok || !json.success) throw new Error(json.message || t('bad'));
+  localStorage.setItem('enc_token', json.token);
+  const acc = ACCOUNTS.find(a => a.email == json.user.email) || {};
+  return {
+    email: json.user.email,
+    role: json.user.role,
+    name: acc.name || json.user.email,
+    phone: acc.phone || ''
+  };
+}

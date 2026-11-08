@@ -862,6 +862,72 @@ def get_dashboard_stats():
         if connection and connection.is_connected():
             connection.close()
 
+# ===================== LOGIN =====================
+import os
+from functools import wraps
+from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
+from werkzeug.security import check_password_hash
+
+serializer = URLSafeTimedSerializer(os.environ.get("SECRET_KEY", "dev-only-change-me"))
+
+
+def get_current_user():
+    auth = request.headers.get("Authorization", "")
+    token = auth[7:] if auth.startswith("Bearer ") else ""
+    try:
+        return serializer.loads(token, max_age=60 * 60 * 12)
+    except (BadSignature, SignatureExpired):
+        return None
+
+
+def roles_required(*roles):
+    def decorator(f):
+        @wraps(f)
+        def wrapper(*args, **kwargs):
+            user = get_current_user()
+            if not user:
+                return jsonify({"success": False, "message": "Unauthorized"}), 401
+            if user.get("role") not in roles:
+                return jsonify({"success": False, "message": "Forbidden"}), 403
+            return f(*args, **kwargs)
+        return wrapper
+    return decorator
+
+
+@app.route("/api/login", methods=["POST"])
+def login():
+    body = request.get_json(silent=True) or {}
+    email = (body.get("email") or "").strip()
+    password = body.get("password") or ""
+
+    connection = None
+    cursor = None
+    try:
+        connection = get_db_connection()
+        cursor = connection.cursor(dictionary=True)
+        cursor.execute(
+            "SELECT UserID, Email, PasswordHash, Role FROM USER_ACCOUNT WHERE Email = %s LIMIT 1",
+            (email,),
+        )
+        row = cursor.fetchone()
+    except Exception as error:
+        return jsonify({"success": False, "message": str(error)}), 500
+    finally:
+        if cursor:
+            cursor.close()
+        if connection and connection.is_connected():
+            connection.close()
+    try:
+        ok = bool(row) and check_password_hash(row["PasswordHash"], password)
+    except ValueError:
+        ok = False
+    if not ok:
+        return jsonify({"success": False, "message": "Sai email hoặc mật khẩu"}), 401
+
+    user = {"id": row["UserID"], "email": row["Email"], "role": row["Role"]}
+    return jsonify({"success": True, "user": user, "token": serializer.dumps(user)})
+# =================================================
+
 # Run Flask application
 if __name__ == "__main__":
     app.run(debug=True, port=5000)

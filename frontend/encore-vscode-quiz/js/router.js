@@ -6,6 +6,7 @@ function route() {
   const need = ['queue', 'seats', 'checkout', 'success', 'tickets'];
   if (r == 'logout') {
     LS.removeItem('enc_user');
+    LS.removeItem('enc_token');
     SS.clear();
     return location.hash = '#/'
   }
@@ -40,12 +41,18 @@ function bind(r, id) {
     document.querySelectorAll('.seg button').forEach(b => b.onclick = () => {
       SS.setItem('enc_role', b.dataset.r); route()
     });
-    $('#lf').onsubmit = e => {
+        $('#lf').onsubmit = async e => {
       e.preventDefault();
       const f = e.target;
       const role = SS.getItem('enc_role') || 'c';
-      const u = allUsers().find(x => x.email == f.e.value.trim().toLowerCase() && x.pw == f.p.value);
-      if (!u || (role == 'c' && u.role != 'Customer')) return fail(t('bad'));
+      let u;
+      try {
+        u = await apiLogin(f.e.value.trim().toLowerCase(), f.p.value);
+      } catch (err) {
+        return fail(t('bad'));
+      }
+      if (role == 'c' && u.role != 'Customer') return fail(t('bad'));
+      if (role == 'a' && u.role == 'Customer') return fail(t('perm'));
       if (role == 'a' && u.role == 'Customer') return fail(t('perm'));
       W(LS, 'enc_user', {email: u.email, name: u.name, role: u.role});
       if (u.role != 'Customer') return location.hash = u.role == 'Ticket Checker' ? '#/admin/checkin' : '#/admin';
