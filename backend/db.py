@@ -16,6 +16,7 @@ def get_db_connection():
         database=os.getenv("DB_NAME") or "concertticket",
     )
     if os.getenv("DB_SSL") == "1":
-        config["ssl_ca"] = os.getenv("DB_SSL_CA") or "/etc/ssl/certs/ca-certificates.crt"
+        import certifi
+        config["ssl_ca"] = certifi.where()
         config["ssl_verify_cert"] = True
     return mysql.connector.connect(**config)
