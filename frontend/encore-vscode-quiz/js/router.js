@@ -41,7 +41,7 @@ function bind(r, id) {
     document.querySelectorAll('.seg button').forEach(b => b.onclick = () => {
       SS.setItem('enc_role', b.dataset.r); route()
     });
-        $('#lf').onsubmit = async e => {
+    $('#lf').onsubmit = async e => {
       e.preventDefault();
       const f = e.target;
       const role = SS.getItem('enc_role') || 'c';
@@ -49,10 +49,10 @@ function bind(r, id) {
       try {
         u = await apiLogin(f.e.value.trim().toLowerCase(), f.p.value);
       } catch (err) {
-        return fail(t('bad'));
+        console.error('Login error:', err);
+        return fail(err.message || t('bad'));
       }
       if (role == 'c' && u.role != 'Customer') return fail(t('bad'));
-      if (role == 'a' && u.role == 'Customer') return fail(t('perm'));
       if (role == 'a' && u.role == 'Customer') return fail(t('perm'));
       W(LS, 'enc_user', {email: u.email, name: u.name, role: u.role});
       if (u.role != 'Customer') return location.hash = u.role == 'Ticket Checker' ? '#/admin/checkin' : '#/admin';
