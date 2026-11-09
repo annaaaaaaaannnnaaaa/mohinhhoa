@@ -927,7 +927,18 @@ def login():
     user = {"id": row["UserID"], "email": row["Email"], "role": row["Role"]}
     return jsonify({"success": True, "user": user, "token": serializer.dumps(user)})
 # =================================================
-
+# ===================== BẢO VỆ ROUTE ADMIN =====================
+@app.before_request
+def protect_admin_api():
+    if request.path.startswith("/api/admin/"):
+        if request.method == "OPTIONS":
+            return None
+        user = get_current_user()
+        if not user:
+            return jsonify({"success": False, "message": "Unauthorized"}), 401
+        if user.get("role") != "Administrator":
+            return jsonify({"success": False, "message": "Forbidden"}), 403
+# ==============================================================
 # Run Flask application
 if __name__ == "__main__":
     app.run(debug=True, port=5000)

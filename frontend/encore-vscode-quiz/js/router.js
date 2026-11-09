@@ -55,6 +55,7 @@ function bind(r, id) {
       if (role == 'c' && u.role != 'Customer') return fail(t('bad'));
       if (role == 'a' && u.role == 'Customer') return fail(t('perm'));
       W(LS, 'enc_user', {email: u.email, name: u.name, role: u.role});
+            if (u.role === 'Administrator') adLoadConcerts();
       if (u.role != 'Customer') return location.hash = u.role == 'Ticket Checker' ? '#/admin/checkin' : '#/admin';
       const n = SS.getItem('enc_next');
       SS.removeItem('enc_next');

@@ -125,13 +125,16 @@ function adFromApi(c) {
 
 // Gọi API, lưu vào cache (localStorage) để adConcertList() đọc được
 async function adLoadConcerts() {
+  const token = localStorage.getItem('enc_token');
+  if (!token) return;   // chưa đăng nhập: dùng dữ liệu demo
   try {
-    const res = await fetch('/api/admin/concerts');
+    const res = await fetch('/api/admin/concerts', {
+      headers: {Authorization: 'Bearer ' + token}
+    });
     if (!res.ok) throw new Error('HTTP ' + res.status);
     const json = await res.json();
     if (!json.success || !Array.isArray(json.data)) throw new Error('Dữ liệu API không hợp lệ');
     adSave({concerts: json.data.map(adFromApi)});
-    // Đang ở trang admin thì vẽ lại để thấy dữ liệu mới
     if (location.hash.startsWith('#/admin')) window.dispatchEvent(new HashChangeEvent('hashchange'));
   } catch (e) {
     console.warn('Không tải được concert từ API, dùng dữ liệu demo.', e);
