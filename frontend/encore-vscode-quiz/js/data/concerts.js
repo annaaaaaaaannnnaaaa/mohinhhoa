@@ -126,6 +126,44 @@ const CONCERTS = [
     out: ['3R'],
   },
 ];
+// Map UI zone IDs to actual database ZoneIDs
+const DB_ZONE_MAP = {
+  arirang: {
+    '101': 'Z1', '102': 'Z2', '103': 'Z3', '104': 'Z4',
+    '105': 'Z5', '106': 'Z6', '107': 'Z7', '108': 'Z8',
+    '109': 'Z9', '110': 'Z10', '111': 'Z11', '112': 'Z12',
+    '201': 'Z13', '202': 'Z14', '207': 'Z15', '208': 'Z16',
+    '209': 'Z17', '210': 'Z18', '215': 'Z19', '216': 'Z20',
+    '203': 'Z21', '204': 'Z22', '205': 'Z23', '206': 'Z24',
+    '211': 'Z25', '212': 'Z26', '213': 'Z27', '214': 'Z28'
+  },
+
+  skynote: {
+    'VIP': 'Z29',
+    '1A': 'Z30', '1B': 'Z31', '1C': 'Z32',
+    '2A': 'Z33', '2B': 'Z34', '2C': 'Z35',
+    '2D': 'Z36', '2E': 'Z37',
+    '3A': 'Z38', '3B': 'Z39', '3C': 'Z40',
+    '3D': 'Z41', '3E': 'Z42', '3F': 'Z43', '3G': 'Z44'
+  },
+
+  sketch: {
+    'VC': 'Z45', 'VL': 'Z46', 'VR': 'Z47',
+    '1C': 'Z48', '1L': 'Z49', '1R': 'Z50',
+    '2C': 'Z51', '2L': 'Z52', '2R': 'Z53',
+    '3C': 'Z54', '3L': 'Z55', '3R': 'Z56'
+  }
+};
+
+CONCERTS.forEach(c => {
+  c.zones.forEach(z => {
+    z.dbZoneId = DB_ZONE_MAP[c.id]?.[z.k];
+
+    if (!z.dbZoneId) {
+      console.error(`Missing database ZoneID: ${c.id} / ${z.k}`);
+    }
+  });
+});
 
 const SOLD_RATE = {arirang: 0.45, skynote: 0.40, sketch: 0.35};
 const HELD_RATE = 0.04;

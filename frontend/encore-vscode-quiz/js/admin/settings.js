@@ -1,6 +1,6 @@
 //  ADMIN – Settings
 const ADS = {tab: 'General', draft: null};
-const AD_STABS = ['General', 'Payments', 'Ticketing rules', 'Notifications', 'Team and roles', 'Integrations'];
+const AD_STABS = ['General', 'Fyments', 'Ticketing rules', 'Notifications', 'Team and roles', 'Integrations'];
 
 const adsDraft = () => ADS.draft || (ADS.draft = clone(adSettings()));
 

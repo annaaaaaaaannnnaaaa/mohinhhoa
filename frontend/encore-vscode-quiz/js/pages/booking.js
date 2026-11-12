@@ -22,19 +22,119 @@ function drawMap() {
   drawBook()
 }
 
-function pick(c, z, sid) {
-  const st0 = st(c, z, sid);
-  if (st0 == 'S' || st0 == 'H') return toast(st0 == 'S' ? 'This seat is sold' : 'This seat is being held by another customer');
-  const S = sel(), k = z.k+'-'+sid, i = S.items.findIndex(x => x.key == k);
-  if (i >= 0) S.items.splice(i, 1);
-  else {
-    if (S.items.length >= 6) return toast('Maximum 6 tickets per order');
-    S.items.push({key: k, zone: z.k, zl: z.label, cls: z.cls, row: sid[0], n: +sid.slice(1), price: c.classes[z.cls].p});
-    if (!S.end) S.end = Date.now()+600000
+const pendingSeats = new Set();
+
+async function pick(c, z, sid) {
+  const S = sel();
+  const key = z.k + '-' + sid;
+  const seatId = z.dbZoneId + '-' + sid;
+  const index = S.items.findIndex(x => x.key === key);
+
+  if (pendingSeats.has(key)) return;
+  pendingSeats.add(key);
+
+  try {
+    const token = localStorage.getItem('enc_token');
+
+    if (!token) {
+      toast('Please log in again');
+      return;
+    }
+
+    // Bỏ giữ ghế
+    if (index >= 0) {
+      const item = S.items[index];
+
+      if (item.holdId) {
+        const res = await fetch(
+          `/api/customer/seat-holds/${item.holdId}`,
+          {
+            method: 'DELETE',
+            headers: {
+              Authorization: 'Bearer ' + token
+            }
+          }
+        );
+
+        const json = await res.json();
+
+        if (!res.ok || !json.success) {
+          throw new Error(json.message || 'Unable to release seat');
+        }
+      }
+
+      S.items.splice(index, 1);
+
+      S.end = S.items.length
+        ? Math.min(...S.items.map(x => x.expiresAt).filter(Boolean))
+        : 0;
+
+      W(SS, 'enc_sel', S);
+      drawMap();
+      return;
+    }
+
+    // Kiểm tra trạng thái ghế
+    const status = st(c, z, sid);
+
+    if (status === 'S' || status === 'H') {
+      toast(status === 'S'
+        ? 'This seat is sold'
+        : 'This seat is being held by another customer');
+      return;
+    }
+
+    if (S.items.length >= 6) {
+      toast('Maximum 6 tickets per order');
+      return;
+    }
+
+    // Gọi API giữ ghế trên TiDB Cloud
+    const res = await fetch('/api/customer/seat-holds', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: 'Bearer ' + token
+      },
+      body: JSON.stringify({ SeatID: seatId })
+    });
+
+    const json = await res.json();
+
+    if (!res.ok || !json.success) {
+      throw new Error(json.message || 'Unable to hold seat');
+    }
+
+    const expiresAt = Date.parse(
+      json.data.ExpiresAt.replace(' ', 'T')
+    );
+
+    S.items.push({
+  key: key,
+  seatId: seatId,
+  zone: z.k,
+      zone: z.k,
+      zl: z.label,
+      cls: z.cls,
+      row: sid[0],
+      n: Number(sid.slice(1)),
+      price: c.classes[z.cls].p,
+      holdId: json.data.HoldID,
+      expiresAt: expiresAt
+    });
+
+    S.end = Math.min(
+      ...S.items.map(x => x.expiresAt).filter(Boolean)
+    );
+
+    W(SS, 'enc_sel', S);
+    drawMap();
+
+  } catch (error) {
+    toast(error.message);
+  } finally {
+    pendingSeats.delete(key);
   }
-  if (!S.items.length) S.end = 0;
-  W(SS, 'enc_sel', S);
-  drawMap()
 }
 
 function drawBook() {
@@ -42,9 +142,21 @@ function drawBook() {
   $('#bk').innerHTML = `<h2 style="margin:0">Your booking</h2><p class="sub" style="margin:6px 0 16px;font-size:13px">${c.title} • ${fmtDate(c.date)} • ${c.venue}</p><b style="font-size:13px">Selected seats</b><div style="margin-top:10px">${S.items.map((x,i)=>`<div class="sel"><div><b>${x.cls} - Row ${x.row}, Seat ${x.n}</b><small>${x.zl}</small></div><span><b>${money(x.price)}</b> <button data-x="${i}">✕</button></span></div>`).join('')||'<p class="sub">No seats selected yet.</p>'}</div>
  <div class="tot"><span>Subtotal</span><b>${money(sub)}</b></div><div class="tot"><span>Service fee</span><b>${money(fee)}</b></div><div class="tot big"><span>Total</span><b>${money(sub+fee)}</b></div>
  <div class="chip">● Seats held for <span id="hold">${mmss(S.end?Math.max(0,Math.round((S.end-Date.now())/1000)):600)}</span></div><p class="sub" style="font-size:12px">Maximum 6 tickets per order</p><br><button class="btn" style="width:100%" id="pay" ${S.items.length?'':'disabled'}>Continue to payment</button>`;
-  $('#bk').querySelectorAll('[data-x]').forEach(b => b.onclick = () => {
-    const S = sel(); S.items.splice(+b.dataset.x, 1); if(!S.items.length)S.end = 0; W(SS, 'enc_sel', S); drawMap()
-  });
+ $('#bk').querySelectorAll('[data-x]').forEach(b => {
+  b.onclick = async () => {
+    const S = sel();
+    const item = S.items[Number(b.dataset.x)];
+
+    if (!item) return;
+
+    const zone = c.zones.find(z => z.k === item.zone);
+    const sid = item.row + pad(item.n);
+
+    if (zone) {
+      await pick(c, zone, sid);
+    }
+  };
+});
   $('#pay').onclick = () => location.hash = '#/checkout/'+c.id
 }
 
