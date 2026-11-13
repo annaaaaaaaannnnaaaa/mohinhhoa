@@ -106,7 +106,7 @@ async function pick(c, z, sid) {
     }
 
     const expiresAt = Date.parse(
-      json.data.ExpiresAt.replace(' ', 'T')
+      json.data.ExpiresAt.replace(' ', 'T') + 'Z'
     );
 
     S.items.push({
