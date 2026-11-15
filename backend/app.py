@@ -944,10 +944,12 @@ def protect_admin_api():
 
 # ===================== CUSTOMER: HOLD SEAT =====================
 
+
 @app.route("/api/customer/seat-holds", methods=["POST"])
 @roles_required("Customer")
 def hold_seat():
     request_start = time.perf_counter()
+
     user = get_current_user()
     data = request.get_json(silent=True) or {}
     seat_id = data.get("SeatID")
@@ -962,21 +964,59 @@ def hold_seat():
     cursor = None
 
     try:
+        # Measure database connection time
+        connection_start = time.perf_counter()
         connection = get_db_connection()
+
         print(
             "[SEAT HOLD] DB connection:",
-            round(time.perf_counter() - request_start, 3),
+            round(time.perf_counter() - connection_start, 3),
             "seconds"
         )
+
+        # Start transaction
+        transaction_start = time.perf_counter()
         connection.start_transaction()
+
+        print(
+            "[SEAT HOLD] Start transaction:",
+            round(time.perf_counter() - transaction_start, 3),
+            "seconds"
+        )
+
         cursor = connection.cursor(dictionary=True)
 
-        # 1. Get CustomerID from the logged-in account
-        cursor.execute(
+        # Helper function to measure each SQL query
+        def timed_execute(label, sql, params=(), fetchone=False):
+            start = time.perf_counter()
+
+            cursor.execute(sql, params)
+
+            print(
+                f"[SEAT HOLD] {label} execute:",
+                round(time.perf_counter() - start, 3),
+                "seconds"
+            )
+
+            if fetchone:
+                fetch_start = time.perf_counter()
+                result = cursor.fetchone()
+
+                print(
+                    f"[SEAT HOLD] {label} fetch:",
+                    round(time.perf_counter() - fetch_start, 3),
+                    "seconds"
+                )
+
+                return result
+
+        # 1. Get CustomerID
+        customer = timed_execute(
+            "1. Get CustomerID",
             "SELECT CustomerID FROM CUSTOMER WHERE UserID = %s",
-            (user["id"],)
+            (user["id"],),
+            fetchone=True
         )
-        customer = cursor.fetchone()
 
         if not customer:
             connection.rollback()
@@ -988,12 +1028,13 @@ def hold_seat():
         customer_id = customer["CustomerID"]
 
         # 2. Lock the selected seat
-        cursor.execute(
+        seat = timed_execute(
+            "2. Lock seat",
             "SELECT SeatID, Status FROM SEAT "
             "WHERE SeatID = %s FOR UPDATE",
-            (seat_id,)
+            (seat_id,),
+            fetchone=True
         )
-        seat = cursor.fetchone()
 
         if not seat:
             connection.rollback()
@@ -1002,26 +1043,33 @@ def hold_seat():
                 "message": "Seat not found."
             }), 404
 
-        # 3. Expire old holds for this seat
-        cursor.execute("""
+        # 3. Expire old holds
+        timed_execute(
+            "3. Expire old holds",
+            """
             UPDATE SEAT_HOLD
             SET HoldStatus = 'Expired'
             WHERE SeatID = %s
               AND HoldStatus = 'Active'
               AND ExpiresAt <= NOW()
-        """, (seat_id,))
+            """,
+            (seat_id,)
+        )
 
-        # 4. Check whether another active hold exists
-        cursor.execute("""
+        # 4. Check active holds
+        active_hold = timed_execute(
+            "4. Check active hold",
+            """
             SELECT HoldID
             FROM SEAT_HOLD
             WHERE SeatID = %s
               AND HoldStatus = 'Active'
               AND ExpiresAt > NOW()
             LIMIT 1
-        """, (seat_id,))
-
-        active_hold = cursor.fetchone()
+            """,
+            (seat_id,),
+            fetchone=True
+        )
 
         if active_hold:
             connection.rollback()
@@ -1030,13 +1078,15 @@ def hold_seat():
                 "message": "This seat is currently held."
             }), 409
 
-        # 5. Release an expired hold if necessary
+        # 5. Release expired hold if necessary
         if seat["Status"] == "Hold":
-            cursor.execute(
+            timed_execute(
+                "5. Release expired seat",
                 "UPDATE SEAT SET Status = 'Available' "
                 "WHERE SeatID = %s",
                 (seat_id,)
             )
+
             seat["Status"] = "Available"
 
         if seat["Status"] != "Available":
@@ -1047,35 +1097,50 @@ def hold_seat():
             }), 409
 
         # 6. Create a new hold for 10 minutes
-        cursor.execute("""
+        timed_execute(
+            "6. Insert seat hold",
+            """
             INSERT INTO SEAT_HOLD
                 (SeatID, CustomerID, HoldStatus, HeldAt, ExpiresAt)
             VALUES
                 (%s, %s, 'Active', NOW(),
                  DATE_ADD(NOW(), INTERVAL 10 MINUTE))
-        """, (seat_id, customer_id))
+            """,
+            (seat_id, customer_id)
+        )
 
         hold_id = cursor.lastrowid
 
         # 7. Update seat status
-        cursor.execute(
+        timed_execute(
+            "7. Update seat status",
             "UPDATE SEAT SET Status = 'Hold' WHERE SeatID = %s",
             (seat_id,)
         )
 
         # 8. Get expiration time
-        cursor.execute(
+        hold = timed_execute(
+            "8. Get expiration time",
             "SELECT ExpiresAt FROM SEAT_HOLD WHERE HoldID = %s",
-            (hold_id,)
+            (hold_id,),
+            fetchone=True
         )
-        hold = cursor.fetchone()
 
         print(
             "[SEAT HOLD] Before commit:",
             round(time.perf_counter() - request_start, 3),
             "seconds"
         )
+
+        # Measure commit time
+        commit_start = time.perf_counter()
         connection.commit()
+
+        print(
+            "[SEAT HOLD] Commit:",
+            round(time.perf_counter() - commit_start, 3),
+            "seconds"
+        )
 
         print(
             "[SEAT HOLD] Total DB operation:",
@@ -1109,6 +1174,7 @@ def hold_seat():
     finally:
         if cursor:
             cursor.close()
+
         if connection and connection.is_connected():
             connection.close()
 
