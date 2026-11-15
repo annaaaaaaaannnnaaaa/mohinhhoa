@@ -1431,6 +1431,113 @@ def release_seat(hold_id):
             connection.close()
 # ==============================================================
 
+# ===================== CUSTOMER: MY TICKETS =====================
+
+@app.route("/api/customer/tickets", methods=["GET"])
+@roles_required("Customer")
+def customer_tickets():
+    user = get_current_user()
+
+    connection = None
+    cursor = None
+
+    try:
+        connection = get_db_connection()
+        cursor = connection.cursor(dictionary=True)
+
+        cursor.execute("""
+            SELECT
+                b.BillID,
+                b.ConcertID,
+                b.BillDate,
+                c.ConcertName,
+                c.Venue,
+                c.Artist,
+                c.StartTime,
+                p.PaymentStatus,
+                bi.BillitemID,
+                bi.SeatID,
+                s.RowNumber,
+                s.SeatNumber,
+                z.ZoneID,
+                z.ZoneName,
+                tc.ClassName,
+                bi.UnitPrice,
+                bi.ServiceFee,
+                t.TicketID,
+                t.UniqueCode,
+                t.CheckinStatus,
+                t.CheckinTime
+            FROM CUSTOMER cu
+            JOIN BILL b
+                ON cu.CustomerID = b.CustomerID
+            JOIN PAYMENT p
+                ON b.BillID = p.BillID
+            JOIN BILL_ITEM bi
+                ON b.BillID = bi.BillID
+            JOIN TICKET t
+                ON bi.BillitemID = t.BillitemID
+            LEFT JOIN SEAT s
+                ON bi.SeatID = s.SeatID
+            LEFT JOIN ZONE z
+                ON s.ZoneID = z.ZoneID
+            LEFT JOIN TICKET_CLASS tc
+                ON z.ClassID = tc.ClassID
+            LEFT JOIN CONCERT c
+                ON b.ConcertID = c.ConcertID
+            WHERE cu.UserID = %s
+              AND p.PaymentStatus = 'Success'
+            ORDER BY b.BillDate DESC, z.ZoneName,
+                     s.RowNumber, s.SeatNumber
+        """, (user["id"],))
+
+        rows = cursor.fetchall()
+
+        tickets = []
+        for row in rows:
+            tickets.append({
+                "BillID": row["BillID"],
+                "ConcertID": row["ConcertID"],
+                "ConcertName": row["ConcertName"],
+                "Venue": row["Venue"],
+                "Artist": row["Artist"],
+                "StartTime": str(row["StartTime"]) if row["StartTime"] else None,
+                "BillDate": str(row["BillDate"]) if row["BillDate"] else None,
+                "PaymentStatus": row["PaymentStatus"],
+                "BillitemID": row["BillitemID"],
+                "SeatID": row["SeatID"],
+                "RowNumber": row["RowNumber"],
+                "SeatNumber": row["SeatNumber"],
+                "ZoneID": row["ZoneID"],
+                "ZoneName": row["ZoneName"],
+                "ClassName": row["ClassName"],
+                "UnitPrice": float(row["UnitPrice"] or 0),
+                "ServiceFee": float(row["ServiceFee"] or 0),
+                "TicketID": row["TicketID"],
+                "UniqueCode": row["UniqueCode"],
+                "CheckinStatus": row["CheckinStatus"],
+                "CheckinTime": str(row["CheckinTime"]) if row["CheckinTime"] else None
+            })
+
+        return jsonify({
+            "success": True,
+            "total": len(tickets),
+            "data": tickets
+        }), 200
+
+    except Exception:
+        app.logger.exception("Error loading customer tickets")
+        return jsonify({
+            "success": False,
+            "message": "Unable to load tickets."
+        }), 500
+
+    finally:
+        if cursor:
+            cursor.close()
+        if connection and connection.is_connected():
+            connection.close()
+
 # ===================== CUSTOMER: CHECKOUT =====================
 
 @app.route("/api/customer/checkout", methods=["POST"])

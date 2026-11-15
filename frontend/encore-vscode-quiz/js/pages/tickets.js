@@ -16,18 +16,105 @@ function qr(code) {
     if (on) s += `<rect x="${x}" y="${y}" width="1" height="1" fill="#141a2b"/>`
   } return s+'</svg>'
 }
+let customerTicketData = null;
 
 function tickets() {
-  const u = user(), all = orders().filter(o => o.email == u.email).flatMap(o => o.items.map(i => ({...i, cid: o.cid, name: o.name})));
-  if (!all.length) return hdr('t')+`<div class="wrap"><h1 style="font-size:34px">My tickets</h1><p class="sub">You have no tickets yet.</p><a class="btn" href="#/">Discover concerts</a></div>`;
-  const i = ((+SS.getItem('enc_ti') || 0)%all.length);
+  const all = customerTicketData || [];
+
+  if (customerTicketData === null) {
+    return hdr('t') + `
+      <div class="wrap">
+        <h1 style="font-size:34px">My tickets</h1>
+        <p class="sub">Loading your tickets...</p>
+      </div>`;
+  }
+
+  if (!all.length) {
+    return hdr('t') + `
+      <div class="wrap">
+        <h1 style="font-size:34px">My tickets</h1>
+        <p class="sub">You have no tickets yet.</p>
+        <a class="btn" href="#/">Discover concerts</a>
+      </div>`;
+  }
+
+  const i = ((+SS.getItem('enc_ti') || 0) % all.length);
   const k = all[i];
   const c = cc(k.cid);
+
+  if (!c) {
+    return hdr('t') + `
+      <div class="wrap">
+        <h1 style="font-size:34px">My tickets</h1>
+        <p class="sub">Concert information could not be loaded.</p>
+      </div>`;
+  }
+
   return hdr('t')+`<div class="wrap"><h1 style="font-size:34px">My tickets</h1><p class="sub">Your concert passes are ready. Present the QR code at entry.</p><div class="panel tk" style="padding:30px">
- <div class="pic" style="background-image:linear-gradient(#0003,#000a),url(${c.poster})"><small>ENCORE PRESENTS</small><div><h2>${c.tag=='SKETCH A ROSE'?'Sketch a Rose':c.tag}</h2><p>${fmtDate(c.date)} • ${c.time}</p><p style="font-weight:400;color:#cbd5e1">${c.venue}, ${c.city}</p></div><p>${k.cls} • SEAT ${k.row}${k.n}</p></div>
+ <div class="pic" style="background-image:linear-gradient(#0003,#000a),url(${c.poster})"><small>ENCORE PRESENTS</small><div><h2>${c.tag=='SKETCH A ROSE'?'Sketch a Rose':c.tag}</h2><p>${fmtDate(c.date)} &middot; ${c.time}</p><p style="font-weight:400;color:#cbd5e1">${c.venue}, ${c.city}</p></div><p>${k.cls} · SEAT ${k.row}${k.n}</p></div>
  <div style="position:relative"><small class="sub" style="font-weight:700">E-TICKET / ORDER #${k.order}</small><span class="vd">VALID</span><div style="display:flex;gap:46px;margin-top:20px;align-items:center;flex-wrap:wrap"><div class="qr">${qr(k.code+k.tid)}</div>
  <div><small class="sub">Ticket holder</small><h3>${k.name}</h3><br><small class="sub">Ticket ID</small><h3>${k.tid}</h3><br><small class="sub">Check-in status</small><h3 style="color:var(--g)">${k.checked?'Checked in':'Not checked in'}</h3></div></div>
- <p style="color:var(--or);font-size:13px;margin-top:20px">QR illustration — live app must generate a unique valid token. (${k.code})</p></div></div>${all.length>1?`<button class="nx" id="nx">➜</button>`:''}</div>`
+ <p style="color:var(--or);font-size:13px;margin-top:20px">QR illustration — live app must generate a unique valid token. (${k.code})</p></div></div>${all.length>1?`<button class="nx" id="nx">➜</button>`:''}</div>`;
+}
+
+async function loadCustomerTickets() {
+  const token = localStorage.getItem('enc_token');
+
+  try {
+    const res = await fetch('/api/customer/tickets', {
+      headers: {
+        Authorization: 'Bearer ' + token
+      }
+    });
+
+    const json = await res.json();
+
+    if (!res.ok || !json.success) {
+      throw new Error(json.message || 'Unable to load tickets');
+    }
+
+    const concertMap = {
+      CON01: 'arirang',
+      CON02: 'skynote',
+      CON03: 'sketch'
+    };
+
+    customerTicketData = json.data.map(t => ({
+      cid: concertMap[t.ConcertID],
+      cls: t.ClassName || t.ZoneName,
+      row: t.RowNumber,
+      n: Number(t.SeatNumber),
+      code: t.UniqueCode,
+      tid: t.TicketID,
+      order: t.BillID,
+      name: user().name,
+      checked: t.CheckinStatus === 'CheckedIn'
+    }));
+
+    $('#app').innerHTML = tickets();
+
+    const n = $('#nx');
+    if (n) {
+      n.onclick = () => {
+        SS.setItem(
+          'enc_ti',
+          (+SS.getItem('enc_ti') || 0) + 1
+        );
+        $('#app').innerHTML = tickets();
+
+        const next = $('#nx');
+        if (next) next.onclick = n.onclick;
+      };
+    }
+
+  } catch (err) {
+    console.error('Load tickets error:', err);
+    $('#app').innerHTML = hdr('t') + `
+      <div class="wrap">
+        <h1 style="font-size:34px">My tickets</h1>
+        <p class="sub">Unable to load your tickets. Please try again.</p>
+      </div>`;
+  }
 }
 
 // Trang Help

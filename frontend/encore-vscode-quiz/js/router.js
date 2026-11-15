@@ -82,11 +82,9 @@ function bind(r, id) {
   if (r == 'seats') stimer();
   if (r == 'checkout') ctimer(id);
   if (r == 'tickets') {
-    const n = $('#nx');
-    n && (n.onclick = () => {
-      SS.setItem('enc_ti', (+SS.getItem('enc_ti') || 0)+1); route()
-    })
-  }
+  customerTicketData = null;
+  loadCustomerTickets();
+ }
   const nz = $('#zoomin');
   if (nz) {
     nz.onclick = () => {
