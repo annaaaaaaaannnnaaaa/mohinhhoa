@@ -8,6 +8,41 @@ function seats(id) {
 function drawMap() {
   const id = location.hash.split('/')[2], c = cc(id), m = $('#mc');
   if (!m) return;
+  // Chưa có dữ liệu ghế từ database
+  if (!dbSeatStatuses[c.code]) {
+    m.innerHTML = `
+      <div style="text-align:center;padding:40px;color:#9aa6bd">
+        Loading seat availability...
+      </div>
+    `;
+
+    loadSeatStatuses(c)
+      .then(() => {
+        // Chỉ vẽ lại nếu người dùng vẫn đang ở concert này
+        if (
+          $('#mc') === m &&
+          location.hash.split('/')[2] === id
+        ) {
+          drawMap();
+        }
+      })
+      .catch(error => {
+        console.error(error);
+
+        if ($('#mc') === m) {
+          m.innerHTML = `
+            <div style="text-align:center;padding:40px">
+              <p>Unable to load seat availability.</p>
+              <button id="retrySeats">Try again</button>
+            </div>
+          `;
+
+          $('#retrySeats').onclick = () => drawMap();
+        }
+      });
+
+    return;
+  }
   const z = sv.zone && c.zones.find(x => x.k == sv.zone);
   m.innerHTML = (z ? `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px"><button class="back" id="bk0">← All Sections</button><b style="font-size:18px"><span style="color:${c.classes[z.cls].c}">●</span> ${z.label} &nbsp; <span style="color:#9aa6bd">${money(c.classes[z.cls].p)} / ticket</span></b></div><div class="stage">${detail(c,z)}</div>` : `<div class="stage">${overview(c)}</div>`)+legend(c);
   m.querySelector('svg').style.transform = `scale(${sv.zoom})`;
@@ -23,6 +58,41 @@ function drawMap() {
 }
 
 const pendingSeats = new Set();
+const seatStatusRequests = {};
+
+async function loadSeatStatuses(c) {
+  if (dbSeatStatuses[c.code]) return;
+
+  if (seatStatusRequests[c.code]) {
+    return seatStatusRequests[c.code];
+  }
+
+  seatStatusRequests[c.code] = (async () => {
+    const res = await fetch(
+      `/api/customer/concerts/${c.code}/seats`
+    );
+
+    const json = await res.json();
+
+    if (!res.ok || !json.success) {
+      throw new Error('Unable to load seat availability');
+    }
+
+    const statuses = {};
+
+    json.data.forEach(seat => {
+      statuses[seat.SeatID] = seat.Status;
+    });
+
+    dbSeatStatuses[c.code] = statuses;
+  })();
+
+  try {
+    await seatStatusRequests[c.code];
+  } finally {
+    delete seatStatusRequests[c.code];
+  }
+}
 
 async function pick(c, z, sid) {
   const S = sel();
@@ -61,6 +131,7 @@ async function pick(c, z, sid) {
         if (!res.ok || !json.success) {
           throw new Error(json.message || 'Unable to release seat');
         }
+        dbSeatStatuses[c.code][seatId] = 'Available';
       }
 
       S.items.splice(index, 1);
@@ -77,10 +148,14 @@ async function pick(c, z, sid) {
     // Kiểm tra trạng thái ghế
     const status = st(c, z, sid);
 
-    if (status === 'S' || status === 'H') {
-      toast(status === 'S'
-        ? 'This seat is sold'
-        : 'This seat is being held by another customer');
+        if (status === 'S' || status === 'H' || status === 'U') {
+      toast(
+        status === 'S'
+          ? 'This seat is sold'
+          : status === 'H'
+            ? 'This seat is being held by another customer'
+            : 'Seat availability is still loading. Please try again.'
+      );
       return;
     }
 
@@ -104,6 +179,7 @@ async function pick(c, z, sid) {
     if (!res.ok || !json.success) {
       throw new Error(json.message || 'Unable to hold seat');
     }
+    dbSeatStatuses[c.code][seatId] = 'Hold';
 
     const expiresAt = Date.parse(
       json.data.ExpiresAt.replace(' ', 'T') + 'Z'
@@ -113,7 +189,6 @@ async function pick(c, z, sid) {
   key: key,
   seatId: seatId,
   zone: z.k,
-      zone: z.k,
       zl: z.label,
       cls: z.cls,
       row: sid[0],

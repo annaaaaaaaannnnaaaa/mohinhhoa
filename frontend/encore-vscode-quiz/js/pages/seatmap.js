@@ -1,5 +1,6 @@
 const PI = Math.PI;
-
+// Real seat statuses loaded from the database API
+let dbSeatStatuses = {};
 const rad = d => d*PI/180;
 
 const ell = (cx, cy, a, b, c, d, a1, a2) => {
@@ -12,7 +13,18 @@ const fan = (cx, cy, r1, r2, a1, a2) => {
   return `M${p(r2,a1)}A${r2} ${r2} 0 0 0 ${p(r2,a2)}L${p(r1,a2)}A${r1} ${r1} 0 0 1 ${p(r1,a1)}Z`
 };
 
-const isOut = (c, z) => c.out.includes(z.k);
+function isOut(c, z) {
+  const statuses = dbSeatStatuses[c.code];
+
+  if (!statuses) return false;
+
+  const prefix = z.dbZoneId + '-';
+  const seats = Object.entries(statuses)
+    .filter(([seatId]) => seatId.startsWith(prefix));
+
+  return seats.length > 0 &&
+    seats.every(([, status]) => status === 'Sold');
+}
 
 function zoneEl(c, z, tag, attrs, lx, ly, sub = '') {
   const o = isOut(c, z), col = o ? '#2a3250' : c.classes[z.cls].c;
@@ -51,10 +63,22 @@ function overview(c) {
 const ROWS = 'ABCDEFGHIJ';
 
 function st(c, z, id) {
-  const k = z.k+'-'+id;
-  if (isOut(c, z) || (c.ex[z.k]?.S || []).includes(id) || soldLocal().includes(c.id+'|'+k)) return 'S';
-  if ((c.ex[z.k]?.H || []).includes(id)) return 'H';
-  return sel().items.some(i => i.key == k) ? 'X' : 'A'
+  const k = z.k + '-' + id;
+
+  // Ghế do chính người dùng đang giữ
+  if (sel().items.some(i => i.key === k)) {
+    return 'X';
+  }
+
+  const seatId = z.dbZoneId + '-' + id;
+  const status = dbSeatStatuses[c.code]?.[seatId];
+
+  if (status === 'Sold') return 'S';
+  if (status === 'Hold') return 'H';
+  if (status === 'Available') return 'A';
+
+  // Không có dữ liệu hoặc không tìm thấy ghế
+  return 'U';
 }
 
 function detail(c, z) {
@@ -65,7 +89,7 @@ function detail(c, z) {
     s += `<text x="26" y="${y0+5}" fill="#9aa6bd" font-weight="700">${L}</text><text x="614" y="${y0+5}" fill="#9aa6bd" font-weight="700" text-anchor="end">${L}</text>`;
     for (let i = 0; i < cols; i++) {
       const n = i+1, id = L+pad(n), S = st(c, z, id), x = 80+i*53, y = y0+Math.pow(i-4.5, 2)*cv;
-      s += `<g class="z ${S=='A'||S=='X'?'':'out'}" data-s="${id}"><circle cx="${x}" cy="${y}" r="16" fill="${S=='S'?'#2a3250':S=='X'?'#fff':S=='H'?'none':col}" ${S=='H'?'stroke="#9aa6bd" stroke-dasharray="3"':S=='X'?'stroke="#7553f7" stroke-width="4"':''}/><text x="${x}" y="${y+4}" text-anchor="middle" font-size="11" font-weight="700" fill="${S=='X'?'#7553f7':S=='A'?'#10131c':'#6b7691'}">${S=='X'?'✓':n}</text></g>`
+      s += `<g class="z ${S=='A'||S=='X'?'':'out'}" data-s="${id}"><circle cx="${x}" cy="${y}" r="16" fill="${S=='S'?'#2a3250':S=='X'?'#fff':S=='H'||S=='U'?'none':col}" ${S=='H'||S=='U'?'stroke="#9aa6bd" stroke-dasharray="3"':S=='X'?'stroke="#7553f7" stroke-width="4"':''}/><text x="${x}" y="${y+4}" text-anchor="middle" font-size="11" font-weight="700" fill="${S=='X'?'#7553f7':S=='A'?'#10131c':'#6b7691'}">${S=='X'?'✓':n}</text></g>`
     }
   }
   return s+'</svg>'

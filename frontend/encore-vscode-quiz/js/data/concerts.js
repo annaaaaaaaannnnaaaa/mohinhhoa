@@ -163,33 +163,4 @@ CONCERTS.forEach(c => {
       console.error(`Missing database ZoneID: ${c.id} / ${z.k}`);
     }
   });
-});
-
-const SOLD_RATE = {arirang: 0.45, skynote: 0.40, sketch: 0.35};
-const HELD_RATE = 0.04;
-
-(function fillSoldSeats() {
-  CONCERTS.forEach(c => {
-    let seed = [...c.id].reduce((a, ch) => (a*31+ch.charCodeAt(0))>>>0, 7);
-    const rnd = () => (seed = (seed*1664525+1013904223)>>>0)/4294967296;
-    const base = SOLD_RATE[c.id] ?? 0.35;
-    c.zones.forEach(z => {
-      if (c.out.includes(z.k)) return;                      
-      const ex = c.ex[z.k] = c.ex[z.k] || {};
-      const S = new Set(ex.S || []), H = new Set(ex.H || []);
-      const zoneF = 0.55+rnd()*0.9;                         
-      for (let r = 0; r < z.rows; r++) {
-        const rowF = 1.35-0.7*(r/Math.max(1, z.rows-1));    
-        for (let n = 1; n <= 10; n++) {
-          const id = 'ABCDEFGHIJ'[r]+pad(n);
-          if (S.has(id) || H.has(id)) continue;
-          const v = rnd(), p = Math.min(0.8, base*zoneF*rowF);
-          if (v < p) S.add(id);
-          else if (v < p+HELD_RATE) H.add(id)
-        }
-      }
-      ex.S = [...S];
-      ex.H = [...H]
-    })
-  })
-})();
+})

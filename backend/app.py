@@ -945,6 +945,107 @@ def protect_admin_api():
 # ===================== CUSTOMER: HOLD SEAT =====================
 
 
+# Get seats by concert
+@app.route("/api/customer/concerts/<concert_id>/seats", methods=["GET"])
+def get_concert_seats(concert_id):
+    connection = None
+    cursor = None
+
+    try:
+        connection = get_db_connection()
+        connection.start_transaction()
+        cursor = connection.cursor(dictionary=True)
+
+        # 1. Expire old holds that are not linked to any order
+        cursor.execute("""
+            UPDATE SEAT_HOLD h
+            JOIN SEAT s ON s.SeatID = h.SeatID
+            JOIN ZONE z ON z.ZoneID = s.ZoneID
+            SET h.HoldStatus = 'Expired'
+            WHERE z.ConcertID = %s
+              AND h.HoldStatus = 'Active'
+              AND h.ExpiresAt <= UTC_TIMESTAMP()
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM BILL_ITEM bi
+                  WHERE bi.SeatID = h.SeatID
+              )
+        """, (concert_id,))
+
+        expired_count = cursor.rowcount
+
+        # 2. Release seats with no order and no valid active hold
+        cursor.execute("""
+            UPDATE SEAT s
+            JOIN ZONE z ON z.ZoneID = s.ZoneID
+            SET s.Status = 'Available'
+            WHERE z.ConcertID = %s
+              AND s.Status = 'Hold'
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM BILL_ITEM bi
+                  WHERE bi.SeatID = s.SeatID
+              )
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM SEAT_HOLD h
+                  WHERE h.SeatID = s.SeatID
+                    AND h.HoldStatus = 'Active'
+                    AND h.ExpiresAt > UTC_TIMESTAMP()
+              )
+        """, (concert_id,))
+
+        released_count = cursor.rowcount
+
+        # 3. Get the latest seat statuses
+        cursor.execute("""
+            SELECT
+                s.SeatID,
+                s.ZoneID,
+                s.RowNumber,
+                s.SeatNumber,
+                s.Status,
+                z.ZoneName,
+                z.ZoneType
+            FROM SEAT s
+            JOIN ZONE z ON s.ZoneID = z.ZoneID
+            WHERE z.ConcertID = %s
+            ORDER BY z.ZoneID, s.RowNumber, s.SeatNumber
+        """, (concert_id,))
+
+        seats = cursor.fetchall()
+
+        connection.commit()
+
+        print(
+            f"[SEAT CLEANUP] Concert: {concert_id}, "
+            f"Expired holds: {expired_count}, "
+            f"Released seats: {released_count}"
+        )
+
+        return jsonify({
+            "success": True,
+            "concert_id": concert_id,
+            "total": len(seats),
+            "data": seats
+        }), 200
+
+    except Exception as error:
+        if connection:
+            connection.rollback()
+
+        print("Get concert seats error:", error)
+
+        return jsonify({
+            "success": False,
+            "message": "Unable to retrieve seat information"
+        }), 500
+
+    finally:
+        if cursor:
+            cursor.close()
+        if connection:
+            connection.close()
 @app.route("/api/customer/seat-holds", methods=["POST"])
 @roles_required("Customer")
 def hold_seat():
@@ -1042,8 +1143,7 @@ def hold_seat():
                 "success": False,
                 "message": "Seat not found."
             }), 404
-
-        # 3. Expire old holds
+        # 3. Expire old holds for the selected seat
         timed_execute(
             "3. Expire old holds",
             """
@@ -1056,7 +1156,7 @@ def hold_seat():
             (seat_id,)
         )
 
-        # 4. Check active holds
+        # 4. Check whether another valid hold exists
         active_hold = timed_execute(
             "4. Check active hold",
             """
@@ -1078,12 +1178,79 @@ def hold_seat():
                 "message": "This seat is currently held."
             }), 409
 
-        # 5. Release expired hold if necessary
+        # 5. Check whether this seat has an existing order
+        order_info = timed_execute(
+            "5. Check existing order",
+            """
+            SELECT
+                COUNT(DISTINCT bi.BillitemID) AS TotalItems,
+                COUNT(DISTINCT t.TicketID) AS TotalTickets,
+                MAX(
+                    CASE
+                        WHEN p.PaymentStatus = 'Success'
+                        THEN 1 ELSE 0
+                    END
+                ) AS HasSuccessfulPayment,
+                MAX(
+                    CASE
+                        WHEN p.PaymentStatus = 'Pending'
+                        THEN 1 ELSE 0
+                    END
+                ) AS HasPendingPayment
+            FROM BILL_ITEM bi
+            JOIN BILL b ON b.BillID = bi.BillID
+            LEFT JOIN PAYMENT p ON p.BillID = b.BillID
+            LEFT JOIN TICKET t ON t.BillitemID = bi.BillitemID
+            WHERE bi.SeatID = %s
+            """,
+            (seat_id,),
+            fetchone=True
+        )
+
+        has_ticket = order_info["TotalTickets"] > 0
+        has_success = order_info["HasSuccessfulPayment"] == 1
+        has_pending = order_info["HasPendingPayment"] == 1
+        has_order = order_info["TotalItems"] > 0
+
+        # A ticket or successful payment means the seat is sold
+        if has_ticket or has_success:
+            timed_execute(
+                "5a. Restore sold seat",
+                """
+                UPDATE SEAT
+                SET Status = 'Sold'
+                WHERE SeatID = %s
+                """,
+                (seat_id,)
+            )
+
+            connection.commit()
+
+            return jsonify({
+                "success": False,
+                "message": "This seat has already been sold."
+            }), 409
+
+        # Do not release seats associated with an existing order.
+        # Pending payments need to be resolved separately.
+        if has_order or has_pending:
+            connection.commit()
+
+            return jsonify({
+                "success": False,
+                "message": "This seat is associated with an existing order and requires payment verification."
+            }), 409
+
+        # 6. Release an expired seat only when no order exists
         if seat["Status"] == "Hold":
             timed_execute(
-                "5. Release expired seat",
-                "UPDATE SEAT SET Status = 'Available' "
-                "WHERE SeatID = %s",
+                "6. Release expired seat",
+                """
+                UPDATE SEAT
+                SET Status = 'Available'
+                WHERE SeatID = %s
+                  AND Status = 'Hold'
+                """,
                 (seat_id,)
             )
 
