@@ -42,9 +42,10 @@ function bind(r, id) {
       SS.setItem('enc_role', b.dataset.r); route()
     });
     $('#lf').onsubmit = async e => {
-      e.preventDefault();
-      const f = e.target;
-      const role = SS.getItem('enc_role') || 'c';
+     e.preventDefault();
+     const f = e.target;
+     const previousEmail = user()?.email;
+     const role = SS.getItem('enc_role') || 'c';
       let u;
       try {
         u = await apiLogin(f.e.value.trim().toLowerCase(), f.p.value);
@@ -54,6 +55,9 @@ function bind(r, id) {
       }
       if (role == 'c' && u.role != 'Customer') return fail(t('bad'));
       if (role == 'a' && u.role == 'Customer') return fail(t('perm'));
+      if (previousEmail !== u.email) {
+        SS.removeItem('enc_sel');
+      }
       W(LS, 'enc_user', {email: u.email, name: u.name, role: u.role});
             if (u.role === 'Administrator') adLoadConcerts();
       if (u.role != 'Customer') return location.hash = u.role == 'Ticket Checker' ? '#/admin/checkin' : '#/admin';
