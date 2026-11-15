@@ -1,4 +1,5 @@
 import secrets
+import time
 from decimal import Decimal
 from pathlib import Path
 from flask import Flask, jsonify, request
@@ -946,6 +947,7 @@ def protect_admin_api():
 @app.route("/api/customer/seat-holds", methods=["POST"])
 @roles_required("Customer")
 def hold_seat():
+    request_start = time.perf_counter()
     user = get_current_user()
     data = request.get_json(silent=True) or {}
     seat_id = data.get("SeatID")
@@ -961,6 +963,11 @@ def hold_seat():
 
     try:
         connection = get_db_connection()
+        print(
+            "[SEAT HOLD] DB connection:",
+            round(time.perf_counter() - request_start, 3),
+            "seconds"
+        )
         connection.start_transaction()
         cursor = connection.cursor(dictionary=True)
 
@@ -1063,7 +1070,18 @@ def hold_seat():
         )
         hold = cursor.fetchone()
 
+        print(
+            "[SEAT HOLD] Before commit:",
+            round(time.perf_counter() - request_start, 3),
+            "seconds"
+        )
         connection.commit()
+
+        print(
+            "[SEAT HOLD] Total DB operation:",
+            round(time.perf_counter() - request_start, 3),
+            "seconds"
+        )
 
         return jsonify({
             "success": True,
