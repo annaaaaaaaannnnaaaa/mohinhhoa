@@ -1173,11 +1173,10 @@ def hold_seat():
 
     finally:
         if cursor:
-            cursor.close()
+           cursor.close()
 
-        if connection and connection.is_connected():
-            connection.close()
-
+        if connection:
+           connection.close()
 @app.route("/api/customer/seat-holds/<int:hold_id>", methods=["DELETE"])
 @roles_required("Customer")
 def release_seat(hold_id):
