@@ -3,8 +3,8 @@ function login() {
   SS.removeItem('enc_err');
   return `<div class="auth"><div class="art" style="background-image:url(assets/login.jpg)"></div><form id="lf"><h1>${t('login')}</h1>${role=='c'?`<p class="sub">${t('lsub')}</p>`:''}
 <div class="seg"><button type="button" data-r="c" class="${role=='c'?'on':''}">${t('cus')}</button><button type="button" data-r="a" class="${role=='a'?'on':''}">${t('adm')}</button></div>
-<label>${t('em')}</label><input class="in" name="e" value="${role=='c'?'nguoimua@gmail.com':'admin@concert.vn'}"><label>${t('pw')}</label><input class="in" name="p" type="password" value="${PASSWORD}">
-<div class="rm"><span><input type="checkbox" checked> ${t('rem')}</span><a href="#" onclick="toast('Demo: password is ${PASSWORD}');return false">${t('fg')}</a></div><button class="btn" style="width:100%">${t('login')}</button>
+<label>${t('em')}</label><input class="in" name="e" type="email" autocomplete="username"><label>${t('pw')}</label><input class="in" name="p" type="password" autocomplete="current-password">
+<div class="rm"><span><input type="checkbox" checked> ${t('rem')}</span><a href="#" onclick="toast('Password recovery is not available in this demo');return false">${t('fg')}</a></div><button class="btn" style="width:100%">${t('login')}</button>
 ${role=='c'?`<div class="or">${t('or')}</div><div class="soc"><button type="button" onclick="toast('Demo only')">Google</button><button type="button" onclick="toast('Demo only')">Apple</button></div>`:''}
 ${e?`<div class="err">⚠ ${e}</div>`:''}<p class="foot">${t('no')} <a class="lnk" href="#/signup">${t('su')}</a></p></form></div>`
 }

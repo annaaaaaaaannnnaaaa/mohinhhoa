@@ -1012,7 +1012,7 @@ def checkin_ticket_data(row):
 
 
 @app.route("/api/checkin/validate", methods=["POST"])
-@roles_required("Administrator", "Ticket Checker")
+@roles_required("Ticket Checker")
 def validate_checkin():
     body = request.get_json(silent=True) or {}
     code = (body.get("code") or "").strip()
@@ -1079,7 +1079,7 @@ def validate_checkin():
 
 
 @app.route("/api/checkin/confirm", methods=["POST"])
-@roles_required("Administrator", "Ticket Checker")
+@roles_required("Ticket Checker")
 def confirm_checkin():
     body = request.get_json(silent=True) or {}
     code = (body.get("code") or "").strip()
@@ -1174,6 +1174,104 @@ def confirm_checkin():
             connection.close()
 
 # ===================== END TICKET CHECK-IN API =====================
+
+@app.route("/api/checkin/stats", methods=["GET"])
+@roles_required("Ticket Checker")
+def get_checkin_stats():
+    concert_id = (request.args.get("concert_id") or "").strip()
+
+    if not concert_id:
+        return jsonify({
+            "success": False,
+            "message": "Concert ID is required"
+        }), 400
+
+    connection = None
+    cursor = None
+
+    try:
+        connection = get_db_connection()
+        cursor = connection.cursor(dictionary=True)
+
+        cursor.execute("""
+            SELECT
+                COUNT(*) AS Total,
+                COALESCE(SUM(
+                    CASE
+                        WHEN t.CheckinStatus = 'CheckedIn' THEN 1
+                        ELSE 0
+                    END
+                ), 0) AS Entered
+            FROM TICKET t
+            JOIN BILL_ITEM bi
+                ON t.BillitemID = bi.BillitemID
+            JOIN BILL b
+                ON bi.BillID = b.BillID
+            WHERE b.ConcertID = %s
+              AND EXISTS (
+                  SELECT 1
+                  FROM PAYMENT p
+                  WHERE p.BillID = b.BillID
+                    AND p.PaymentStatus = 'Success'
+              )
+        """, (concert_id,))
+
+        stats = cursor.fetchone()
+
+        cursor.execute("""
+            SELECT
+                t.TicketID,
+                t.UniqueCode,
+                cu.FullName AS HolderName,
+                t.CheckinTime
+            FROM TICKET t
+            JOIN BILL_ITEM bi
+                ON t.BillitemID = bi.BillitemID
+            JOIN BILL b
+                ON bi.BillID = b.BillID
+            JOIN CUSTOMER cu
+                ON b.CustomerID = cu.CustomerID
+            WHERE b.ConcertID = %s
+              AND t.CheckinStatus = 'CheckedIn'
+              AND EXISTS (
+                  SELECT 1
+                  FROM PAYMENT p
+                  WHERE p.BillID = b.BillID
+                    AND p.PaymentStatus = 'Success'
+              )
+            ORDER BY t.CheckinTime DESC
+            LIMIT 60
+        """, (concert_id,))
+
+        history = cursor.fetchall()
+
+        for item in history:
+            item["CheckinTime"] = (
+                str(item["CheckinTime"])
+                if item["CheckinTime"] else None
+            )
+
+        return jsonify({
+            "success": True,
+            "data": {
+                "total": stats["Total"],
+                "entered": stats["Entered"],
+                "history": history
+            }
+        }), 200
+
+    except Exception as error:
+        print("Check-in stats error:", error)
+        return jsonify({
+            "success": False,
+            "message": "Could not load check-in statistics"
+        }), 500
+
+    finally:
+        if cursor:
+            cursor.close()
+        if connection and connection.is_connected():
+            connection.close()
 
 # ===================== CUSTOMER: HOLD SEAT =====================
 

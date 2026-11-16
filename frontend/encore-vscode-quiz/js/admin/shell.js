@@ -20,7 +20,9 @@ const AD_NAV = [['', 'Overview'], ['concerts', 'Concerts'], ['orders', 'Orders']
 
 function adHeader(sub) {
   const u = user(), checker = u.role == 'Ticket Checker';
-  const nav = AD_NAV.filter(n => !checker || n[0] == 'checkin')
+  const nav = AD_NAV.filter(n =>
+  checker ? n[0] == 'checkin' : n[0] != 'checkin'
+)
     .map(n => `<a class="${n[0]==sub?'on':''}" href="#/admin${n[0]?'/'+n[0]:''}">${n[1]}</a>`).join('');
   return `<header class="ad-h"><a class="logo" href="#/admin${checker?'/checkin':''}"><i>◈</i>ENCORE</a><nav class="ad-nav">${nav}</nav>
 <span class="ad-who"><a class="acc" href="#" id="adwho">${checker?'CHECKER':'ADMIN'}</a><div class="ad-menu" id="admenu" hidden><small>${adEsc(u.email)}</small><a href="#/">Customer site</a><a href="#/logout">Log out</a></div></span></header>`;
@@ -49,13 +51,28 @@ function adRoute(sub, id, keepScroll) {
     SS.setItem('enc_next', location.hash);
     return location.hash = '#/login'
   }
-  if (u.role == 'Customer') {
-    toast(t('perm'));
-    return location.hash = '#/'
-  }
-  const key = (sub || '') + (id ? '/'+id : ''), pages = AD_PAGES();
-  if (u.role == 'Ticket Checker' && key != 'checkin') return location.hash = '#/admin/checkin';
-  if (!pages[key]) return location.hash = '#/admin';
+  if (u.role != 'Administrator' && u.role != 'Ticket Checker') {
+  toast(t('perm'));
+  return location.hash = '#/';
+}
+
+const key = (sub || '') + (id ? '/'+id : '');
+const pages = AD_PAGES();
+
+if (u.role == 'Ticket Checker' && key != 'checkin') {
+  return location.hash = '#/admin/checkin';
+}
+
+if (u.role == 'Administrator' && key == 'checkin') {
+  toast(t('perm'));
+  return location.hash = '#/admin';
+}
+
+if (!pages[key]) {
+  return location.hash = u.role == 'Ticket Checker'
+    ? '#/admin/checkin'
+    : '#/admin';
+}
   const y = window.scrollY;
   $('#app').innerHTML = adHeader(sub || '')+`<main class="ad">${pages[key][0]()}</main>`;
   window.scrollTo(0, keepScroll ? y : 0);

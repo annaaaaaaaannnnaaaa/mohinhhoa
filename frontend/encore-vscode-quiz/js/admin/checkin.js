@@ -1,40 +1,12 @@
 //  ADMIN – Ticket check-in
-const ADK = {key: 'arirang', gate: 'Gate A', token: '', res: null, scan: 0};
-
-function adCkState(key) {
-  return (adStore().ck || {})[key] || clone(AD_CK0[key])
-}
-
-function adCkSave(key, st) {
-  adSave({ck: {...(adStore().ck || {}), [key]: st}})
-}
-
-const adCkTitle = key => (adConcertList().find(c => c.key == key) || {}).title || (cc(key) || {}).title || key;
-const adNow = () => new Date().toTimeString().slice(0, 8);
-
-function adCkFind(token) {
-  const T = token.trim().toUpperCase();
-  for (const o of orders()) {
-    if (!o || !Array.isArray(o.items)) continue;
-    const x = o.items.find(i => String(i.tid).toUpperCase() == T);
-    if (x) return {holder: o.name, key: o.cid, seat: x.cls+' · Row '+x.row+' · Seat '+x.n, real: true, checked: !!x.checked}
-  }
-  const d = AD_TICKETS[T];
-  return d ? {...d} : null
-}
-
-function adCkCheck(token) {
-  const T = token.trim().toUpperCase(), f = adCkFind(T), st = adCkState(ADK.key);
-  if (!f) return {kind: 'invalid', token: T, reason: 'Ticket not found'};
-  if (f.key != ADK.key) return {kind: 'invalid', token: T, f, reason: 'Ticket is for '+adCkTitle(f.key)};
-  if (f.checked || st.done.includes(T)) return {kind: 'dup', token: T, f};
-  return {kind: 'valid', token: T, f}
-}
-
-function adCkLog(st, token, holder, status) {
-  st.log.unshift([token, holder, adNow(), status]);
-  st.log = st.log.slice(0, 60)
-}
+const ADK = {
+  key: 'arirang',
+  gate: 'Gate A',
+  token: '',
+  res: null,
+  scan: 0,
+  stats: null
+};
 
 function adCkResult() {
   const r = ADK.res;
@@ -49,14 +21,95 @@ function adCkResult() {
   return `<div class="res ${r.kind}"><div class="rh"><b><i class="ic">${ico}</i>${head}</b><span>${adEsc(side)}</span></div>${r.kind == 'invalid' && !r.f ? `<div class="fl one"><div><small>Ticket ID</small><b>${adEsc(r.token)}</b></div></div>` : fields}<div class="btns l">${btns}</div></div>`
 }
 
+
+async function adCkLoadStats() {
+  const concertId = Object.keys(AD_API_KEY)
+    .find(id => AD_API_KEY[id] === ADK.key);
+
+  if (!concertId) return;
+
+  try {
+    const authToken = localStorage.getItem('enc_token');
+
+    const res = await fetch(
+      `/api/checkin/stats?concert_id=${encodeURIComponent(concertId)}`,
+      {
+        headers: {
+          Authorization: 'Bearer ' + authToken
+        }
+      }
+    );
+
+    const json = await res.json();
+
+    if (!res.ok || !json.success) {
+      throw new Error(json.message || 'Cannot load statistics');
+    }
+
+    ADK.stats = json.data;
+    adCkPaint();
+
+  } catch (error) {
+    console.error('Check-in stats error:', error);
+    toast('Cannot load check-in statistics');
+  }
+}
+
 function adCkRight() {
-  const st = adCkState(ADK.key), pct = Math.round(st.entered/st.total*100);
-  return `<div class="ad-card"><div class="chd"><h3>Gate progress</h3><b class="tl">${pct}%</b></div><div class="big"><b>${adNum(st.entered)}</b><span class="mu"> / ${adNum(st.total)} guests entered</span></div><div class="bar2 tlb"><i style="width:${pct}%"></i></div>
-<div class="d3 k"><div><span class="mu s"><i class="dot" style="background:#2fd5a0"></i>Valid scans</span><b>${adNum(st.valid)}</b></div><div><span class="mu s"><i class="dot" style="background:#ffb95a"></i>Duplicates</span><b>${adNum(st.dup)}</b></div><div><span class="mu s"><i class="dot" style="background:#ff6b7d"></i>Invalid</span><b>${adNum(st.inv)}</b></div></div></div>
-<div class="ad-card"><div class="chd"><h3>Recent validations</h3><span class="live"><i class="dot" style="background:#2fd5a0"></i>Live</span></div>
-<div class="ad-t rv"><div class="th"><span>TICKET</span><span>HOLDER</span><span>TIME</span><span>STATUS</span></div>
-${st.log.slice(0, 6).map(l => `<div class="tr"><b>${l[0]}</b><span class="mu2">${adEsc(l[1])}</span><span class="mu">${l[2]}</span><span>${adPill(l[3])}</span></div>`).join('') || '<div class="empty">No scans yet for this concert.</div>'}</div>
-<a class="lk" href="#" id="klog">View full validation log →</a></div>`
+  const st = ADK.stats;
+
+  if (!st) {
+    return `<div class="ad-card"><p class="mu">Loading check-in statistics...</p></div>`;
+  }
+
+  const total = Number(st.total) || 0;
+  const entered = Number(st.entered) || 0;
+  const pct = total ? Math.round(entered / total * 100) : 0;
+
+  return `
+    <div class="ad-card">
+      <div class="chd">
+        <h3>Gate progress</h3>
+        <b class="tl">${pct}%</b>
+      </div>
+      <div class="big">
+        <b>${adNum(entered)}</b>
+        <span class="mu"> / ${adNum(total)} paid tickets checked in</span>
+      </div>
+      <div class="bar2 tlb">
+        <i style="width:${pct}%"></i>
+      </div>
+    </div>
+
+    <div class="ad-card">
+      <div class="chd">
+        <h3>Recent check-ins</h3>
+        <span class="live">
+          <i class="dot" style="background:#2fd5a0"></i>Live
+        </span>
+      </div>
+      <div class="ad-t rv">
+        <div class="th">
+          <span>TICKET</span>
+          <span>HOLDER</span>
+          <span>TIME</span>
+          <span>STATUS</span>
+        </div>
+        ${
+          (st.history || []).slice(0, 6).map(item => `
+            <div class="tr">
+              <b>${adEsc(item.UniqueCode || item.TicketID)}</b>
+              <span class="mu2">${adEsc(item.HolderName || 'Unknown')}</span>
+              <span class="mu">${adEsc(item.CheckinTime ? item.CheckinTime.slice(-8) : '--')}</span>
+              <span>${adPill('Valid')}</span>
+            </div>
+          `).join('') ||
+          '<div class="empty">No successful check-ins yet.</div>'
+        }
+      </div>
+      <a class="lk" href="#" id="klog">View full check-in history →</a>
+    </div>
+  `;
 }
 
 function adpCheckin() {
@@ -101,22 +154,18 @@ function adCkBindRes() {
       });
 
       const json = await res.json();
-      const st = adCkState(ADK.key);
 
       if (res.status === 409) {
-        st.dup++;
-        adCkLog(st, r.token, r.f.holder, 'Duplicate');
-        adCkSave(ADK.key, st);
+       ADK.res = {
+       ...r,
+       kind: 'dup'
+    };
 
-        ADK.res = {
-          ...r,
-          kind: 'dup'
-        };
-
-        toast(json.message || 'Ticket already checked in');
-        adCkPaint();
-        return;
-      }
+    toast(json.message || 'Ticket already checked in');
+    await adCkLoadStats();
+    adCkPaint();
+    return;
+  }
 
       if (res.status === 401 || res.status === 403) {
         toast(json.message || 'Session expired or access denied');
@@ -132,18 +181,12 @@ function adCkBindRes() {
         return;
       }
 
-      // Chỉ cập nhật giao diện sau khi database xác nhận thành công
-      st.entered++;
-      st.valid++;
-      st.done.push(r.token);
-
-      adCkLog(st, r.token, r.f.holder, 'Valid');
-      adCkSave(ADK.key, st);
+      // Database đã xác nhận, tải lại thống kê thật
 
       ADK.res = {
         ...r,
         kind: 'done',
-        at: adNow(),
+        at: new Date().toTimeString().slice(0, 8),
         f: {
           ...r.f,
           checked: true
@@ -151,6 +194,7 @@ function adCkBindRes() {
       };
 
       toast('Checked in: ' + r.f.holder);
+      await adCkLoadStats();
       adCkPaint();
 
     } catch (error) {
@@ -178,15 +222,39 @@ function adCkPaint() {
   adCkBindLog()
 }
 
+
 function adCkBindLog() {
   const l = $('#klog');
+
   if (l) l.onclick = e => {
     e.preventDefault();
-    const st = adCkState(ADK.key);
-    adModal('Validation log · '+adCkTitle(ADK.key), `<div class="ad-t rv full"><div class="th"><span>TICKET</span><span>HOLDER</span><span>TIME</span><span>STATUS</span></div>${st.log.map(x => `<div class="tr"><b>${x[0]}</b><span class="mu2">${adEsc(x[1])}</span><span class="mu">${x[2]}</span><span>${adPill(x[3])}</span></div>`).join('') || '<div class="empty">No scans yet.</div>'}</div>`)
-  }
-}
 
+    const history = ADK.stats?.history || [];
+
+    adModal(
+      'Check-in history · ' + adCkTitle(ADK.key),
+      `<div class="ad-t rv full">
+        <div class="th">
+          <span>TICKET</span>
+          <span>HOLDER</span>
+          <span>TIME</span>
+          <span>STATUS</span>
+        </div>
+        ${
+          history.map(item => `
+            <div class="tr">
+              <b>${adEsc(item.UniqueCode || item.TicketID)}</b>
+              <span class="mu2">${adEsc(item.HolderName || 'Unknown')}</span>
+              <span class="mu">${adEsc(item.CheckinTime || '--')}</span>
+              <span>${adPill('Valid')}</span>
+            </div>
+          `).join('') ||
+          '<div class="empty">No successful check-ins yet.</div>'
+        }
+      </div>`
+    );
+  };
+}
 
 async function adCkValidate() {
   const token = $('#tk').value.trim();
@@ -195,7 +263,6 @@ async function adCkValidate() {
     return toast('Enter or scan a ticket token');
   }
 
-  // Đổi key frontend thành ConcertID trong database
   const concertId = Object.keys(AD_API_KEY)
     .find(id => AD_API_KEY[id] === ADK.key);
 
@@ -222,8 +289,6 @@ async function adCkValidate() {
 
     const json = await res.json();
 
-    const st = adCkState(ADK.key);
-
     // Vé đã được check-in trước đó
     if (res.status === 409) {
       const d = json.data || {};
@@ -235,10 +300,6 @@ async function adCkValidate() {
         real: true,
         checked: true
       };
-
-      st.dup++;
-      adCkLog(st, token, f.holder, 'Duplicate');
-      adCkSave(ADK.key, st);
 
       ADK.res = {
         kind: 'dup',
@@ -257,10 +318,6 @@ async function adCkValidate() {
 
     // Vé không hợp lệ, chưa thanh toán hoặc sai concert
     if (!res.ok || !json.success) {
-      st.inv++;
-      adCkLog(st, token, 'Unknown', 'Invalid');
-      adCkSave(ADK.key, st);
-
       ADK.res = {
         kind: 'invalid',
         token,
@@ -271,7 +328,7 @@ async function adCkValidate() {
       return;
     }
 
-    // Chuyển dữ liệu database sang cấu trúc giao diện
+    // Dữ liệu vé thật từ database
     const d = json.data;
 
     const f = {
@@ -296,12 +353,12 @@ async function adCkValidate() {
   }
 }
 
-
 function adbCheckin() {
   $('#kc').onchange = e => {
     ADK.key = e.target.value;
     ADK.res = null;
-    adRefresh()
+    ADK.stats = null;
+    adRefresh();
   };
   $('#kg').onchange = e => ADK.gate = e.target.value;
   $('#kv').onclick = adCkValidate;
@@ -321,5 +378,6 @@ $('#scan').onkeydown = e => {
   }
 };
   adCkBindRes();
-  adCkBindLog()
+  adCkBindLog();
+  adCkLoadStats();
 }
