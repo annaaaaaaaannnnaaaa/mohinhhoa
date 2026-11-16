@@ -941,7 +941,61 @@ def protect_admin_api():
         if user.get("role") != "Administrator":
             return jsonify({"success": False, "message": "Forbidden"}), 403
 # ==============================================================
+# ===================== ADMIN: OVERVIEW STATS =====================
 
+@app.route("/api/admin/overview/stats", methods=["GET"])
+def get_admin_overview_stats():
+    connection = None
+    cursor = None
+
+    try:
+        connection = get_db_connection()
+        cursor = connection.cursor(dictionary=True)
+
+        cursor.execute("""
+            SELECT
+                COUNT(*) AS TotalTickets,
+                COALESCE(SUM(
+                    CASE
+                        WHEN t.CheckinStatus = 'CheckedIn' THEN 1
+                        ELSE 0
+                    END
+                ), 0) AS CheckedInTickets
+            FROM TICKET t
+            JOIN BILL_ITEM bi
+                ON t.BillitemID = bi.BillitemID
+            JOIN BILL b
+                ON bi.BillID = b.BillID
+            WHERE EXISTS (
+                SELECT 1
+                FROM PAYMENT p
+                WHERE p.BillID = b.BillID
+                  AND p.PaymentStatus = 'Success'
+            )
+        """)
+
+        row = cursor.fetchone()
+
+        return jsonify({
+            "success": True,
+            "data": {
+                "totalTickets": int(row["TotalTickets"] or 0),
+                "checkedInTickets": int(row["CheckedInTickets"] or 0)
+            }
+        }), 200
+
+    except Exception as error:
+        print("Admin overview stats error:", error)
+        return jsonify({
+            "success": False,
+            "message": "Could not load overview statistics"
+        }), 500
+
+    finally:
+        if cursor:
+            cursor.close()
+        if connection and connection.is_connected():
+            connection.close()
 # ===================== TICKET CHECK-IN API =====================
 
 def find_checkin_ticket(cursor, code):

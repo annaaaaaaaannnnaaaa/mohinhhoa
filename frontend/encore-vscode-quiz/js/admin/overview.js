@@ -1,16 +1,68 @@
 //  ADMIN – Dashboard overview
 const ADV = {range: '7D'};
+let AD_OVERVIEW_STATS = null;
+let AD_OVERVIEW_STATS_PROMISE = null;
 
+async function adLoadOverviewStats() {
+  if (AD_OVERVIEW_STATS_PROMISE) {
+    return AD_OVERVIEW_STATS_PROMISE;
+  }
+
+  AD_OVERVIEW_STATS_PROMISE = (async () => {
+    try {
+      const token = localStorage.getItem('enc_token');
+
+      if (!token) {
+        throw new Error('Admin token not found');
+      }
+
+      const res = await fetch('/api/admin/overview/stats', {
+        headers: {
+          Authorization: 'Bearer ' + token
+        }
+      });
+
+      const json = await res.json();
+
+      if (!res.ok || !json.success) {
+        throw new Error(json.message || 'Could not load overview stats');
+      }
+
+      AD_OVERVIEW_STATS = json.data;
+
+      const sold = document.getElementById('adOverviewTicketsSold');
+      const checked = document.getElementById('adOverviewCheckedIn');
+
+      if (sold) {
+        sold.textContent = adNum(AD_OVERVIEW_STATS.totalTickets);
+      }
+
+      if (checked) {
+        checked.textContent = adNum(AD_OVERVIEW_STATS.checkedInTickets);
+      }
+
+    } catch (error) {
+      console.error('Admin overview stats error:', error);
+    } finally {
+      AD_OVERVIEW_STATS_PROMISE = null;
+    }
+  })();
+
+  return AD_OVERVIEW_STATS_PROMISE;
+}
 function adSeg(id, cur, items) {
   return `<div class="seg2" id="${id}">${items.map(x => `<button type="button" data-v="${x}" class="${x==cur?'on':''}">${x}</button>`).join('')}</div>`
 }
 
 function adpOverview() {
-  const list = adConcertList(), rev = AD_REV[ADV.range], recent = adAllOrders().slice(0, 5), ck = adCkState('arirang');
+  const list = adConcertList(), rev = AD_REV[ADV.range], recent = adAllOrders().slice(0, 5);
+const stats = AD_OVERVIEW_STATS;
   const tiers = [['VIP', '470 / 500 · 94%', 94, AD_COL.pu], ['CAT 1', '820 / 1,000 · 82%', 82, AD_COL.pk], ['CAT 2', '610 / 1,000 · 61%', 61, AD_COL.tl], ['CAT 3', '380 / 1,000 · 38%', 38, AD_COL.or]];
-  const stat = (l, v, s) => `<div class="stat"><div class="l">${l}</div><b>${v}</b><div class="g">${s}</div></div>`;
+  const stat = (l, v, s, id = '') => `<div class="stat"><div class="l">${l}</div><b${id ? ` id="${id}"` : ''}>${v}</b><div class="g">${s}</div></div>`;
   return `<h1>Dashboard overview</h1><p class="sub">Manage concerts, ticket sales and venue check-in.</p>
-<div class="stats4">${stat('Total concerts', String(list.length).padStart(2, '0'), list.filter(c => c.status == 'Upcoming').length+' upcoming')}${stat('Tickets sold', '1,248', 'Across all events')}${stat('Revenue (demo)', '1.62B VND', 'Simulated payments')}${stat('Checked-in', adNum(ck.entered), 'Current event')}</div>
+<div class="stats4">${stat('Total concerts', String(list.length).padStart(2, '0'), list.filter(c => c.status == 'Upcoming').length+' upcoming')}${stat('Tickets sold', stats ? adNum(stats.totalTickets) : '—', 'Paid tickets across all events', 'adOverviewTicketsSold')}
+${stat('Revenue (demo)', '1.62B VND', 'Simulated payments')}
+${stat('Checked-in', stats ? adNum(stats.checkedInTickets) : '—', 'Across all events', 'adOverviewCheckedIn')}</div>
 <div class="grid21"><div class="ad-card"><div class="chd"><div><h3>Revenue overview</h3><p class="mu s">${rev.sub}</p></div>${adSeg('rg', ADV.range, ['7D', '30D', 'All'])}</div>${adArea(rev.labels, rev.v)}</div>
 <div class="ad-card"><h3>Sales by tier</h3><p class="mu s">Arirang World Tour 2026</p><div class="tiers">${tiers.map(t => `<div class="ti"><div class="row"><b>${t[0]}</b><span class="mu s">${t[1]}</span></div><div class="bar2"><i style="width:${t[2]}%;background:${t[3]}"></i></div></div>`).join('')}</div></div></div>
 <div class="grid21"><div class="ad-card"><div class="chd"><h3>Recent orders</h3><a class="lk" href="#/admin/orders">View all</a></div>
@@ -20,6 +72,7 @@ ${recent.map(o => `<div class="tr"><b>${o.id}</b><span class="mu2">${adEsc(o.nam
 }
 
 function adbOverview() {
+  adLoadOverviewStats();
   document.querySelectorAll('#rg button').forEach(b => b.onclick = () => {
     ADV.range = b.dataset.v;
     adRefresh()
