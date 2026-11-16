@@ -1,5 +1,5 @@
 //  ADMIN – Ticket check-in
-const ADK = {key: 'arirang', gate: 'Gate A', token: 'TKT-8F2A-1045', res: undefined, scan: 0};
+const ADK = {key: 'arirang', gate: 'Gate A', token: '', res: null, scan: 0};
 
 function adCkState(key) {
   return (adStore().ck || {})[key] || clone(AD_CK0[key])
@@ -60,7 +60,7 @@ ${st.log.slice(0, 6).map(l => `<div class="tr"><b>${l[0]}</b><span class="mu2">$
 }
 
 function adpCheckin() {
-  if (ADK.res === undefined) ADK.res = adCkCheck(ADK.token);
+  if (ADK.res === undefined) ADK.res = null;
   const cons = adConcertList().filter(c => c.key);
   return `<div class="ad-top"><div><h1>Ticket check-in</h1><p class="sub">Validate entries at the venue gate in real time.</p></div><div class="acts"><select class="ai" id="kc" style="width:251px" aria-label="Concert">${cons.map(c => `<option value="${c.key}" ${c.key==ADK.key?'selected':''}>${adEsc(c.key == 'arirang' ? 'Arirang World Tour 2026' : c.title)}</option>`).join('')}</select>
 <select class="ai" id="kg" style="width:97px" aria-label="Gate">${['Gate A', 'Gate B', 'Gate C'].map(g => `<option ${g==ADK.gate?'selected':''}>${g}</option>`).join('')}</select></div></div>
@@ -70,31 +70,105 @@ function adpCheckin() {
 <div id="kres">${adCkResult()}</div></div><div class="col" id="kright">${adCkRight()}</div></div>`
 }
 
+
 function adCkBindRes() {
-  const ok = $('#kok'), no = $('#kno');
-  if (ok) ok.onclick = () => {
-    const r = ADK.res, st = adCkState(ADK.key);
-    st.entered++;
-    st.valid++;
-    st.done.push(r.token);
-    adCkLog(st, r.token, r.f.holder, 'Valid');
-    adCkSave(ADK.key, st);
-    if (r.f.real) {
-      const all = orders();
-      all.forEach(o => (o.items || []).forEach(x => {
-        if (String(x.tid).toUpperCase() == r.token) x.checked = true
-      }));
-      W(LS, 'enc_orders', all)
+  const ok = $('#kok');
+  const no = $('#kno');
+
+  if (ok) ok.onclick = async () => {
+    const r = ADK.res;
+    if (!r || r.kind !== 'valid') return;
+
+    ok.disabled = true;
+    ok.textContent = 'Processing...';
+
+    try {
+      const authToken = localStorage.getItem('enc_token');
+
+      const concertId = Object.keys(AD_API_KEY)
+        .find(id => AD_API_KEY[id] === ADK.key);
+
+      const res = await fetch('/api/checkin/confirm', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: 'Bearer ' + authToken
+        },
+        body: JSON.stringify({
+          code: r.token,
+          concert_id: concertId
+        })
+      });
+
+      const json = await res.json();
+      const st = adCkState(ADK.key);
+
+      if (res.status === 409) {
+        st.dup++;
+        adCkLog(st, r.token, r.f.holder, 'Duplicate');
+        adCkSave(ADK.key, st);
+
+        ADK.res = {
+          ...r,
+          kind: 'dup'
+        };
+
+        toast(json.message || 'Ticket already checked in');
+        adCkPaint();
+        return;
+      }
+
+      if (res.status === 401 || res.status === 403) {
+        toast(json.message || 'Session expired or access denied');
+        ok.disabled = false;
+        ok.textContent = 'Confirm check-in';
+        return;
+      }
+
+      if (!res.ok || !json.success) {
+        toast(json.message || 'Check-in failed');
+        ok.disabled = false;
+        ok.textContent = 'Confirm check-in';
+        return;
+      }
+
+      // Chỉ cập nhật giao diện sau khi database xác nhận thành công
+      st.entered++;
+      st.valid++;
+      st.done.push(r.token);
+
+      adCkLog(st, r.token, r.f.holder, 'Valid');
+      adCkSave(ADK.key, st);
+
+      ADK.res = {
+        ...r,
+        kind: 'done',
+        at: adNow(),
+        f: {
+          ...r.f,
+          checked: true
+        }
+      };
+
+      toast('Checked in: ' + r.f.holder);
+      adCkPaint();
+
+    } catch (error) {
+      console.error('Check-in error:', error);
+      toast('Cannot connect to check-in API');
+      ok.disabled = false;
+      ok.textContent = 'Confirm check-in';
     }
-    ADK.res = {...r, kind: 'done', at: adNow()};
-    toast('Checked in: '+r.f.holder);
-    adCkPaint()
   };
+
   if (no) no.onclick = () => {
-    if (ADK.res && ADK.res.kind == 'valid') toast('Ticket rejected');
+    if (ADK.res && ADK.res.kind === 'valid') {
+      toast('Ticket rejected');
+    }
+
     ADK.res = null;
-    adCkPaint()
-  }
+    adCkPaint();
+  };
 }
 
 function adCkPaint() {
@@ -113,24 +187,115 @@ function adCkBindLog() {
   }
 }
 
-function adCkValidate() {
+
+async function adCkValidate() {
   const token = $('#tk').value.trim();
-  if (!token) return toast('Enter or scan a ticket token');
+
+  if (!token) {
+    return toast('Enter or scan a ticket token');
+  }
+
+  // Đổi key frontend thành ConcertID trong database
+  const concertId = Object.keys(AD_API_KEY)
+    .find(id => AD_API_KEY[id] === ADK.key);
+
+  if (!concertId) {
+    return toast('Cannot identify selected concert');
+  }
+
   ADK.token = token;
-  const r = adCkCheck(token), st = adCkState(ADK.key);
-  if (r.kind == 'invalid') {
-    st.inv++;
-    adCkLog(st, r.token, (r.f || {}).holder || 'Unknown', 'Invalid');
-    adCkSave(ADK.key, st)
+
+  try {
+    const authToken = localStorage.getItem('enc_token');
+
+    const res = await fetch('/api/checkin/validate', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: 'Bearer ' + authToken
+      },
+      body: JSON.stringify({
+        code: token,
+        concert_id: concertId
+      })
+    });
+
+    const json = await res.json();
+
+    const st = adCkState(ADK.key);
+
+    // Vé đã được check-in trước đó
+    if (res.status === 409) {
+      const d = json.data || {};
+
+      const f = {
+        holder: d.HolderName || 'Unknown',
+        key: AD_API_KEY[d.ConcertID] || ADK.key,
+        seat: `${d.ClassName || d.ZoneName || ''} · Row ${d.RowNumber || ''} · Seat ${d.SeatNumber || ''}`,
+        real: true,
+        checked: true
+      };
+
+      st.dup++;
+      adCkLog(st, token, f.holder, 'Duplicate');
+      adCkSave(ADK.key, st);
+
+      ADK.res = {
+        kind: 'dup',
+        token,
+        f
+      };
+
+      adCkPaint();
+      return;
+    }
+
+    // Lỗi xác thực hoặc quyền truy cập
+    if (res.status === 401 || res.status === 403) {
+      return toast(json.message || 'Session expired or access denied');
+    }
+
+    // Vé không hợp lệ, chưa thanh toán hoặc sai concert
+    if (!res.ok || !json.success) {
+      st.inv++;
+      adCkLog(st, token, 'Unknown', 'Invalid');
+      adCkSave(ADK.key, st);
+
+      ADK.res = {
+        kind: 'invalid',
+        token,
+        reason: json.message || 'Ticket is invalid'
+      };
+
+      adCkPaint();
+      return;
+    }
+
+    // Chuyển dữ liệu database sang cấu trúc giao diện
+    const d = json.data;
+
+    const f = {
+      holder: d.HolderName,
+      key: AD_API_KEY[d.ConcertID] || ADK.key,
+      seat: `${d.ClassName || d.ZoneName} · Row ${d.RowNumber} · Seat ${d.SeatNumber}`,
+      real: true,
+      checked: d.CheckinStatus === 'CheckedIn'
+    };
+
+    ADK.res = {
+      kind: 'valid',
+      token,
+      f
+    };
+
+    adCkPaint();
+
+  } catch (error) {
+    console.error('Check-in validation error:', error);
+    toast('Cannot connect to check-in API');
   }
-  if (r.kind == 'dup') {
-    st.dup++;
-    adCkLog(st, r.token, r.f.holder, 'Duplicate');
-    adCkSave(ADK.key, st)
-  }
-  ADK.res = r;
-  adCkPaint()
 }
+
 
 function adbCheckin() {
   $('#kc').onchange = e => {
@@ -144,20 +309,17 @@ function adbCheckin() {
     if (e.key == 'Enter') adCkValidate()
   };
   const scan = () => {
-    // Giả lập quét QR: lần lượt lấy mã vé mẫu / vé thật chưa soát
-    const real = [];
-    orders().forEach(o => (o && o.items || []).forEach(x => !x.checked && o.cid == ADK.key && real.push(x.tid)));
-    const pool = real.concat(Object.keys(AD_TICKETS)), t = pool[ADK.scan++ % pool.length];
-    $('#tk').value = t;
-    adCkValidate()
-  };
-  $('#scan').onclick = scan;
-  $('#scan').onkeydown = e => {
-    if (e.key == 'Enter' || e.key == ' ') {
-      e.preventDefault();
-      scan()
-    }
-  };
+  toast('QR scanning is not available yet. Please enter the ticket code manually.');
+};
+
+$('#scan').onclick = scan;
+
+$('#scan').onkeydown = e => {
+  if (e.key === 'Enter' || e.key === ' ') {
+    e.preventDefault();
+    scan();
+  }
+};
   adCkBindRes();
   adCkBindLog()
 }

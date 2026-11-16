@@ -942,6 +942,239 @@ def protect_admin_api():
             return jsonify({"success": False, "message": "Forbidden"}), 403
 # ==============================================================
 
+# ===================== TICKET CHECK-IN API =====================
+
+def find_checkin_ticket(cursor, code):
+    cursor.execute("""
+        SELECT
+            t.TicketID,
+            t.UniqueCode,
+            t.CheckinStatus,
+            t.CheckinTime,
+            b.BillID,
+            b.ConcertID,
+            cu.FullName AS HolderName,
+            c.ConcertName,
+            c.Venue,
+            c.Artist,
+            s.RowNumber,
+            s.SeatNumber,
+            z.ZoneName,
+            tc.ClassName,
+            EXISTS (
+                SELECT 1
+                FROM PAYMENT p
+                WHERE p.BillID = b.BillID
+                  AND p.PaymentStatus = 'Success'
+            ) AS IsPaid
+        FROM TICKET t
+        JOIN BILL_ITEM bi
+            ON t.BillitemID = bi.BillitemID
+        JOIN BILL b
+            ON bi.BillID = b.BillID
+        JOIN CUSTOMER cu
+            ON b.CustomerID = cu.CustomerID
+        LEFT JOIN CONCERT c
+            ON b.ConcertID = c.ConcertID
+        LEFT JOIN SEAT s
+            ON bi.SeatID = s.SeatID
+        LEFT JOIN ZONE z
+            ON s.ZoneID = z.ZoneID
+        LEFT JOIN TICKET_CLASS tc
+            ON z.ClassID = tc.ClassID
+        WHERE UPPER(t.UniqueCode) = UPPER(%s)
+           OR UPPER(t.TicketID) = UPPER(%s)
+        LIMIT 1
+        FOR UPDATE
+    """, (code, code))
+
+    return cursor.fetchone()
+
+
+def checkin_ticket_data(row):
+    return {
+        "TicketID": row["TicketID"],
+        "UniqueCode": row["UniqueCode"],
+        "ConcertID": row["ConcertID"],
+        "ConcertName": row["ConcertName"],
+        "Venue": row["Venue"],
+        "HolderName": row["HolderName"],
+        "ZoneName": row["ZoneName"],
+        "ClassName": row["ClassName"],
+        "RowNumber": row["RowNumber"],
+        "SeatNumber": row["SeatNumber"],
+        "CheckinStatus": row["CheckinStatus"],
+        "CheckinTime": (
+            str(row["CheckinTime"])
+            if row["CheckinTime"] else None
+        )
+    }
+
+
+@app.route("/api/checkin/validate", methods=["POST"])
+@roles_required("Administrator", "Ticket Checker")
+def validate_checkin():
+    body = request.get_json(silent=True) or {}
+    code = (body.get("code") or "").strip()
+    concert_id = (body.get("concert_id") or "").strip()
+
+    if not code or not concert_id:
+        return jsonify({
+            "success": False,
+            "message": "Ticket code and concert are required"
+        }), 400
+
+    connection = None
+    cursor = None
+
+    try:
+        connection = get_db_connection()
+        cursor = connection.cursor(dictionary=True)
+
+        row = find_checkin_ticket(cursor, code)
+
+        if not row:
+            return jsonify({
+                "success": False,
+                "message": "Ticket not found"
+            }), 404
+
+        if not row["IsPaid"]:
+            return jsonify({
+                "success": False,
+                "message": "Ticket has not been paid successfully"
+            }), 400
+
+        if row["ConcertID"] != concert_id:
+            return jsonify({
+                "success": False,
+                "message": "Ticket belongs to another concert",
+                "data": checkin_ticket_data(row)
+            }), 400
+
+        if row["CheckinStatus"] == "CheckedIn":
+            return jsonify({
+                "success": False,
+                "message": "Ticket has already been checked in",
+                "data": checkin_ticket_data(row)
+            }), 409
+
+        return jsonify({
+            "success": True,
+            "message": "Ticket is valid",
+            "data": checkin_ticket_data(row)
+        }), 200
+
+    except Exception:
+        return jsonify({
+            "success": False,
+            "message": "Could not validate ticket"
+        }), 500
+
+    finally:
+        if cursor:
+            cursor.close()
+        if connection and connection.is_connected():
+            connection.close()
+
+
+@app.route("/api/checkin/confirm", methods=["POST"])
+@roles_required("Administrator", "Ticket Checker")
+def confirm_checkin():
+    body = request.get_json(silent=True) or {}
+    code = (body.get("code") or "").strip()
+    concert_id = (body.get("concert_id") or "").strip()
+
+    if not code or not concert_id:
+        return jsonify({
+            "success": False,
+            "message": "Ticket code and concert are required"
+        }), 400
+
+    user = get_current_user()
+    connection = None
+    cursor = None
+
+    try:
+        connection = get_db_connection()
+        connection.start_transaction()
+        cursor = connection.cursor(dictionary=True)
+
+        row = find_checkin_ticket(cursor, code)
+
+        if not row:
+            connection.rollback()
+            return jsonify({
+                "success": False,
+                "message": "Ticket not found"
+            }), 404
+
+        if not row["IsPaid"]:
+            connection.rollback()
+            return jsonify({
+                "success": False,
+                "message": "Ticket has not been paid successfully"
+            }), 400
+
+        if row["ConcertID"] != concert_id:
+            connection.rollback()
+            return jsonify({
+                "success": False,
+                "message": "Ticket belongs to another concert"
+            }), 400
+
+        if row["CheckinStatus"] == "CheckedIn":
+            connection.rollback()
+            return jsonify({
+                "success": False,
+                "message": "Ticket has already been checked in",
+                "data": checkin_ticket_data(row)
+            }), 409
+
+        cursor.execute("""
+            UPDATE TICKET
+            SET
+                CheckinStatus = 'CheckedIn',
+                CheckinTime = CURRENT_TIMESTAMP,
+                CheckedInBy = %s
+            WHERE TicketID = %s
+              AND CheckinStatus = 'NotCheckedIn'
+        """, (user["id"], row["TicketID"]))
+
+        if cursor.rowcount != 1:
+            connection.rollback()
+            return jsonify({
+                "success": False,
+                "message": "Ticket was already checked in"
+            }), 409
+
+        connection.commit()
+
+        row["CheckinStatus"] = "CheckedIn"
+
+        return jsonify({
+            "success": True,
+            "message": "Check-in successful",
+            "data": checkin_ticket_data(row)
+        }), 200
+
+    except Exception:
+        if connection:
+            connection.rollback()
+
+        return jsonify({
+            "success": False,
+            "message": "Could not confirm check-in"
+        }), 500
+
+    finally:
+        if cursor:
+            cursor.close()
+        if connection and connection.is_connected():
+            connection.close()
+
+# ===================== END TICKET CHECK-IN API =====================
+
 # ===================== CUSTOMER: HOLD SEAT =====================
 
 
