@@ -14,7 +14,7 @@ function adCkTitle(key) {
     return 'Arirang World Tour 2026';
   }
 
-  return concert?.title || key || '—';
+  return concert?.title || key || '-';
 }
 function adCkResult() {
   const r = ADK.res;
