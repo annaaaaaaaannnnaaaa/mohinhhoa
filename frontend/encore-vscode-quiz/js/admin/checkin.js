@@ -7,7 +7,15 @@ const ADK = {
   scan: 0,
   stats: null
 };
+function adCkTitle(key) {
+  const concert = adConcertList().find(c => c.key === key);
 
+  if (key === 'arirang') {
+    return 'Arirang World Tour 2026';
+  }
+
+  return concert?.title || key || '—';
+}
 function adCkResult() {
   const r = ADK.res;
   if (!r) return `<div class="res none"><span class="mu">Enter a ticket token or click the scan area, then choose Validate ticket.</span></div>`;
