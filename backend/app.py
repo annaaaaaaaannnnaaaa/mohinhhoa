@@ -665,6 +665,422 @@ def get_orders():
         if connection and connection.is_connected():
             connection.close()
 
+@app.route("/api/admin/customers", methods=["GET"])
+def get_customers():
+    connection = None
+    cursor = None
+
+    try:
+        connection = get_db_connection()
+        cursor = connection.cursor(dictionary=True)
+
+        # Thong ke tong hop theo tung khach hang
+        customer_query = """
+            SELECT
+                u.CustomerID,
+                u.FullName,
+                a.Email,
+                u.PhoneNumber,
+                COALESCE(s.TotalOrders, 0) AS TotalOrders,
+                COALESCE(s.TotalTickets, 0) AS TotalTickets,
+                COALESCE(s.TotalSpent, 0) AS TotalSpent,
+                s.LastPurchase,
+                s.MemberSince
+            FROM CUSTOMER u
+            JOIN USER_ACCOUNT a
+                ON u.UserID = a.UserID
+            LEFT JOIN (
+                SELECT
+                    x.CustomerID,
+                    COUNT(*) AS TotalOrders,
+                    SUM(x.TotalTickets) AS TotalTickets,
+                    SUM(
+                        CASE
+                            WHEN x.IsPaid = 1 THEN x.TotalAmount
+                            ELSE 0
+                        END
+                    ) AS TotalSpent,
+                    MAX(
+                        CASE
+                            WHEN x.IsPaid = 1 THEN x.PaidTime
+                            ELSE NULL
+                        END
+                    ) AS LastPurchase,
+                    MIN(x.BillDate) AS MemberSince
+                FROM (
+                    SELECT
+                        b.BillID,
+                        b.CustomerID,
+                        b.TotalAmount,
+                        b.BillDate,
+                        COUNT(DISTINCT bi.BillitemID) AS TotalTickets,
+                        MAX(
+                            CASE
+                                WHEN p.PaymentStatus = 'Success'
+                                THEN 1 ELSE 0
+                            END
+                        ) AS IsPaid,
+                        MAX(
+                            CASE
+                                WHEN p.PaymentStatus = 'Success'
+                                THEN COALESCE(p.PaymentTime, b.BillDate)
+                                ELSE NULL
+                            END
+                        ) AS PaidTime
+                    FROM BILL b
+                    LEFT JOIN BILL_ITEM bi
+                        ON b.BillID = bi.BillID
+                    LEFT JOIN PAYMENT p
+                        ON b.BillID = p.BillID
+                    GROUP BY
+                        b.BillID,
+                        b.CustomerID,
+                        b.TotalAmount,
+                        b.BillDate
+                ) x
+                GROUP BY x.CustomerID
+            ) s
+                ON u.CustomerID = s.CustomerID
+            ORDER BY u.FullName
+        """
+
+        cursor.execute(customer_query)
+        customers = cursor.fetchall()
+
+        # Lay 3 don hang gan nhat cua moi khach
+        order_query = """
+            SELECT
+                b.BillID,
+                b.CustomerID,
+                c.ConcertName,
+                b.TotalAmount,
+                b.BillDate,
+                COUNT(DISTINCT bi.BillitemID) AS TotalTickets,
+                MAX(p.PaymentStatus) AS PaymentStatus
+            FROM BILL b
+            LEFT JOIN CONCERT c
+                ON b.ConcertID = c.ConcertID
+            LEFT JOIN BILL_ITEM bi
+                ON b.BillID = bi.BillID
+            LEFT JOIN PAYMENT p
+                ON b.BillID = p.BillID
+            GROUP BY
+                b.BillID,
+                b.CustomerID,
+                c.ConcertName,
+                b.TotalAmount,
+                b.BillDate
+            ORDER BY b.BillDate DESC
+        """
+
+        cursor.execute(order_query)
+        orders = cursor.fetchall()
+
+        # Gom don hang theo CustomerID
+        recent_orders = {}
+
+        for order in orders:
+            customer_id = order["CustomerID"]
+
+            if customer_id not in recent_orders:
+                recent_orders[customer_id] = []
+
+            if len(recent_orders[customer_id]) < 3:
+                bill_date = order["BillDate"]
+
+                recent_orders[customer_id].append({
+                    "BillID": order["BillID"],
+                    "ConcertName": order["ConcertName"],
+                    "TotalAmount": float(order["TotalAmount"] or 0),
+                    "TotalTickets": int(order["TotalTickets"] or 0),
+                    "BillDate": (
+                        bill_date.isoformat(sep=" ", timespec="seconds")
+                        if bill_date else None
+                    ),
+                    "PaymentStatus": order["PaymentStatus"]
+                })
+
+        # Chuan hoa du lieu tra ve
+        for customer in customers:
+            customer["TotalOrders"] = int(customer["TotalOrders"])
+            customer["TotalTickets"] = int(customer["TotalTickets"])
+            customer["TotalSpent"] = float(customer["TotalSpent"] or 0)
+
+            for field in ["LastPurchase", "MemberSince"]:
+                if customer[field]:
+                    customer[field] = customer[field].isoformat(
+                        sep=" ", timespec="seconds"
+                    )
+
+            customer["RecentOrders"] = recent_orders.get(
+                customer["CustomerID"], []
+            )
+
+        return jsonify({
+            "success": True,
+            "total": len(customers),
+            "data": customers
+        }), 200
+
+    except Exception as error:
+        return jsonify({
+            "success": False,
+            "message": str(error)
+        }), 500
+
+    finally:
+        if cursor:
+            cursor.close()
+        if connection and connection.is_connected():
+           connection.close()
+
+# ===================== ADMIN: REPORTS =====================
+
+@app.route("/api/admin/reports", methods=["GET"])
+def get_admin_reports():
+    connection = None
+    cursor = None
+
+    report_range = request.args.get("range", "7D")
+    concert_id = request.args.get("concert_id", "All")
+
+    if report_range not in ("7D", "30D", "All"):
+        return jsonify({
+            "success": False,
+            "message": "Invalid report range"
+        }), 400
+
+    try:
+        connection = get_db_connection()
+        cursor = connection.cursor(dictionary=True)
+
+        # Payment thanh cong, gom theo BillID de tranh nhan doi du lieu
+        success_payment = """
+            SELECT
+                BillID,
+                MAX(PaymentTime) AS PaymentTime
+            FROM PAYMENT
+            WHERE PaymentStatus = 'Success'
+            GROUP BY BillID
+        """
+
+        conditions = []
+        params = []
+
+        if report_range == "7D":
+            conditions.append(
+                "ps.PaymentTime >= DATE_SUB(CURDATE(), INTERVAL 6 DAY)"
+            )
+        elif report_range == "30D":
+            conditions.append(
+                "ps.PaymentTime >= DATE_SUB(CURDATE(), INTERVAL 29 DAY)"
+            )
+
+        if concert_id != "All":
+            conditions.append("b.ConcertID = %s")
+            params.append(concert_id)
+
+        where_sql = " AND ".join(conditions) if conditions else "1=1"
+
+        # 1. Summary
+        cursor.execute(f"""
+            SELECT
+                COUNT(DISTINCT b.BillID) AS TotalOrders,
+                COALESCE(SUM(b.TotalAmount), 0) AS GrossRevenue,
+                COALESCE(SUM(ticket_count.TotalTickets), 0) AS TicketsSold
+            FROM BILL b
+            JOIN ({success_payment}) ps
+                ON ps.BillID = b.BillID
+            LEFT JOIN (
+                SELECT BillID, COUNT(*) AS TotalTickets
+                FROM BILL_ITEM
+                GROUP BY BillID
+            ) ticket_count
+                ON ticket_count.BillID = b.BillID
+            WHERE {where_sql}
+        """, params)
+
+        summary = cursor.fetchone()
+
+        gross = float(summary["GrossRevenue"] or 0)
+        tickets = int(summary["TicketsSold"] or 0)
+
+        # 2. Revenue and tickets over time
+        period_sql = (
+            "DATE_FORMAT(ps.PaymentTime, '%Y-%m')"
+            if report_range == "All"
+            else "DATE_FORMAT(ps.PaymentTime, '%Y-%m-%d')"
+        )
+
+        cursor.execute(f"""
+            SELECT
+                {period_sql} AS Period,
+                COALESCE(SUM(b.TotalAmount), 0) AS Revenue,
+                COALESCE(SUM(ticket_count.TotalTickets), 0) AS TicketsSold
+            FROM BILL b
+            JOIN ({success_payment}) ps
+                ON ps.BillID = b.BillID
+            LEFT JOIN (
+                SELECT BillID, COUNT(*) AS TotalTickets
+                FROM BILL_ITEM
+                GROUP BY BillID
+            ) ticket_count
+                ON ticket_count.BillID = b.BillID
+            WHERE {where_sql}
+            GROUP BY Period
+            ORDER BY Period ASC
+        """, params)
+
+        trend = cursor.fetchall()
+
+        # 3. Revenue by concert
+        cursor.execute(f"""
+            SELECT
+                c.ConcertID,
+                c.ConcertName,
+                COALESCE(SUM(b.TotalAmount), 0) AS Revenue,
+                COALESCE(SUM(ticket_count.TotalTickets), 0) AS TicketsSold
+            FROM BILL b
+            JOIN ({success_payment}) ps
+                ON ps.BillID = b.BillID
+            JOIN CONCERT c
+                ON c.ConcertID = b.ConcertID
+            LEFT JOIN (
+                SELECT BillID, COUNT(*) AS TotalTickets
+                FROM BILL_ITEM
+                GROUP BY BillID
+            ) ticket_count
+                ON ticket_count.BillID = b.BillID
+            WHERE {where_sql}
+            GROUP BY c.ConcertID, c.ConcertName
+            ORDER BY Revenue DESC
+        """, params)
+
+        by_concert = cursor.fetchall()
+
+        # 4. Sales by ticket class
+        cursor.execute(f"""
+            SELECT
+                tc.ClassID,
+                tc.ClassName,
+                COUNT(bi.BillitemID) AS TicketsSold,
+                COALESCE(
+                    SUM(bi.UnitPrice + bi.ServiceFee), 0
+                ) AS Revenue
+            FROM BILL b
+            JOIN ({success_payment}) ps
+                ON ps.BillID = b.BillID
+            JOIN BILL_ITEM bi
+                ON bi.BillID = b.BillID
+            JOIN SEAT s
+                ON s.SeatID = bi.SeatID
+            JOIN ZONE z
+                ON z.ZoneID = s.ZoneID
+            JOIN TICKET_CLASS tc
+                ON tc.ClassID = z.ClassID
+                AND tc.ConcertID = b.ConcertID
+            WHERE {where_sql}
+            GROUP BY tc.ClassID, tc.ClassName
+            ORDER BY Revenue DESC
+        """, params)
+
+        by_tier = cursor.fetchall()
+
+        # 5. Peak purchase hours
+        cursor.execute(f"""
+            SELECT
+                HOUR(ps.PaymentTime) AS PurchaseHour,
+                COUNT(DISTINCT b.BillID) AS TotalOrders
+            FROM BILL b
+            JOIN ({success_payment}) ps
+                ON ps.BillID = b.BillID
+            WHERE {where_sql}
+            GROUP BY HOUR(ps.PaymentTime)
+            ORDER BY PurchaseHour ASC
+        """, params)
+
+        peak_hours = cursor.fetchall()
+
+        # 6. Sales by payment method
+        cursor.execute(f"""
+            SELECT
+                p.PaymentMethod,
+                COUNT(DISTINCT b.BillID) AS TotalOrders,
+                COALESCE(SUM(b.TotalAmount), 0) AS Revenue
+            FROM BILL b
+            JOIN (
+                SELECT
+                    BillID,
+                    MAX(PaymentTime) AS PaymentTime
+                FROM PAYMENT
+                WHERE PaymentStatus = 'Success'
+                GROUP BY BillID
+            ) ps ON ps.BillID = b.BillID
+            JOIN PAYMENT p
+                ON p.BillID = b.BillID
+                AND p.PaymentStatus = 'Success'
+                AND p.PaymentTime = ps.PaymentTime
+            WHERE {where_sql}
+            GROUP BY p.PaymentMethod
+            ORDER BY Revenue DESC
+        """, params)
+
+        payment_methods = cursor.fetchall()
+
+        for item in payment_methods:
+            item["TotalOrders"] = int(item["TotalOrders"] or 0)
+            item["Revenue"] = float(item["Revenue"] or 0)
+
+        # Convert Decimal values to JSON-compatible numbers
+        for item in trend:
+            item["Revenue"] = float(item["Revenue"] or 0)
+            item["TicketsSold"] = int(item["TicketsSold"] or 0)
+
+        for item in by_concert:
+            item["Revenue"] = float(item["Revenue"] or 0)
+            item["TicketsSold"] = int(item["TicketsSold"] or 0)
+
+        for item in by_tier:
+            item["Revenue"] = float(item["Revenue"] or 0)
+            item["TicketsSold"] = int(item["TicketsSold"] or 0)
+
+        for item in peak_hours:
+            item["PurchaseHour"] = int(item["PurchaseHour"])
+            item["TotalOrders"] = int(item["TotalOrders"])
+
+        return jsonify({
+            "success": True,
+            "data": {
+                "summary": {
+                    "totalOrders": int(summary["TotalOrders"] or 0),
+                    "grossRevenue": gross,
+                    "netRevenue": gross,
+                    "ticketsSold": tickets,
+                    "averageTicketPrice": gross / tickets if tickets else 0,
+                    "refundRate": None
+                },
+                "trend": trend,
+                "byConcert": by_concert,
+                "byTier": by_tier,
+                "peakHours": peak_hours,
+                "paymentMethods": payment_methods
+            }
+        }), 200
+
+    except Exception as error:
+        print("Admin reports error:", error)
+        return jsonify({
+            "success": False,
+            "message": str(error)
+        }), 500
+
+    finally:
+        if cursor:
+            cursor.close()
+        if connection and connection.is_connected():
+            connection.close()
+
+# ===================== END ADMIN: REPORTS =====================
 
 @app.route("/api/admin/orders/<bill_id>", methods=["GET"])
 def get_order_details(bill_id):
